@@ -11,6 +11,7 @@ blouedit_sources = [
   # 'editor/effects.cpp',
   'editor/transitions.cpp',
   'editor/filters.cpp',
+  'editor/resize.cpp',
   # 'editor/text.cpp',
   # 'editor/audio.cpp',
   'ai/scene_detection.cpp',
@@ -24,6 +25,8 @@ blouedit_sources = [
   'ai/smart_cutout.cpp',
   'ai/voice_modulator.cpp',
   'ai/audio_noise_remover.cpp',
+  'ai/voice_cloning.cpp',
+  'ai/audio_stretch.cpp',
   # 'utils/media_library.cpp',
   # 'utils/file_utils.cpp',
 ]
@@ -40,6 +43,7 @@ blouedit_headers = [
   # 'editor/effects.h',
   'editor/transitions.h',
   'editor/filters.h',
+  'editor/resize.h',
   # 'editor/text.h',
   # 'editor/audio.h',
   'ai/scene_detection.h',
@@ -53,6 +57,8 @@ blouedit_headers = [
   'ai/smart_cutout.h',
   'ai/voice_modulator.h',
   'ai/audio_noise_remover.h',
+  'ai/voice_cloning.h',
+  'ai/audio_stretch.h',
   # 'utils/media_library.h',
   # 'utils/file_utils.h',
 ]
