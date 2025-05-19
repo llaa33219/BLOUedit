@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=BLOUedit
+Comment=Professional video editing application
+GenericName=Video Editor
+Exec=blouedit %f
+Icon=com.blouedit.BLOUedit
+Terminal=false
+Type=Application
+Categories=AudioVideo;AudioVideoEditing;Video;GTK;
+Keywords=video;editor;editing;multimedia;
+StartupNotify=true
+MimeType=video/x-msvideo;video/x-matroska;video/webm;video/mp4;video/mpeg;application/x-blouedit-project; 

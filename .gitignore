@@ -1,0 +1,39 @@
+# Build directories
+build/
+build-flatpak/
+.flatpak-builder/
+
+# Compiled binaries
+*.o
+*.a
+*.so
+*.dll
+*.exe
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-*
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Temporary media files
+*.mp4.part
+*.avi.part
+*.mov.part
+
+# Cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Log files
+*.log 

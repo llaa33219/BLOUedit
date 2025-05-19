@@ -1,0 +1,58 @@
+app-id: com.blouedit.BLOUedit
+runtime: org.gnome.Platform
+runtime-version: '44'
+sdk: org.gnome.Sdk
+command: hello
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+modules:
+  - name: hello
+    buildsystem: simple
+    build-commands:
+      - cc -o hello hello.c `pkg-config --cflags --libs gtk4`
+      - install -D hello /app/bin/hello
+    sources:
+      - type: inline
+        dest-filename: hello.c
+        contents: |
+          #include <gtk/gtk.h>
+          
+          static void activate(GtkApplication *app, gpointer user_data) {
+            GtkWidget *window = gtk_application_window_new(app);
+            gtk_window_set_title(GTK_WINDOW(window), "BLOUedit");
+            gtk_window_set_default_size(GTK_WINDOW(window), 1280, 720);
+            
+            GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+            gtk_widget_set_margin_start(box, 20);
+            gtk_widget_set_margin_end(box, 20);
+            gtk_widget_set_margin_top(box, 20);
+            gtk_widget_set_margin_bottom(box, 20);
+            
+            GtkWidget *label = gtk_label_new("BLOUedit");
+            gtk_widget_add_css_class(label, "title-1");
+            
+            GtkWidget *subtitle = gtk_label_new("Professional Video Editor");
+            gtk_widget_add_css_class(subtitle, "title-4");
+            
+            GtkWidget *message = gtk_label_new("The application is currently under development.\nFull functionality will be available in future releases.");
+            gtk_label_set_justify(GTK_LABEL(message), GTK_JUSTIFY_CENTER);
+            gtk_widget_set_margin_top(message, 20);
+            
+            gtk_box_append(GTK_BOX(box), label);
+            gtk_box_append(GTK_BOX(box), subtitle);
+            gtk_box_append(GTK_BOX(box), message);
+            
+            gtk_window_set_child(GTK_WINDOW(window), box);
+            gtk_window_present(GTK_WINDOW(window));
+          }
+          
+          int main(int argc, char *argv[]) {
+            GtkApplication *app = gtk_application_new("com.blouedit.BLOUedit", G_APPLICATION_DEFAULT_FLAGS);
+            g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
+            int status = g_application_run(G_APPLICATION(app), argc, argv);
+            g_object_unref(app);
+            return status;
+          } 

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.blouedit.BLOUedit</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>BLOUedit</name>
+  <summary>Professional video editing application</summary>
+  <description>
+    <p>
+      BLOUedit is a professional-grade video editing application with advanced
+      features similar to commercial software.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>Multi-track timeline editing</li>
+      <li>Advanced transitions and effects</li>
+      <li>Text and title creation</li>
+      <li>Professional color grading</li>
+      <li>Audio editing and mixing</li>
+      <li>Motion tracking and keyframing</li>
+      <li>AI-powered editing tools (auto cutting, style transfer)</li>
+      <li>Resource management</li>
+      <li>Project templates</li>
+    </ul>
+  </description>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://blouedit.com/screenshots/main.png</image>
+      <caption>The BLOUedit main interface</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://blouedit.com/screenshots/timeline.png</image>
+      <caption>The multi-track timeline</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://blouedit.com/screenshots/effects.png</image>
+      <caption>Effects and transitions panel</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://blouedit.com</url>
+  <url type="bugtracker">https://github.com/blouedit/blouedit/issues</url>
+  <url type="help">https://docs.blouedit.com</url>
+  <developer_name>BLOUedit Team</developer_name>
+  <update_contact>info@blouedit.com</update_contact>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2023-05-30">
+      <description>
+        <p>Initial release with core functionality</p>
+      </description>
+    </release>
+  </releases>
+</component> 

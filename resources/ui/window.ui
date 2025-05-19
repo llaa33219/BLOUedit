@@ -1,0 +1,315 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="Adw" version="1.0"/>
+  <template class="BlouEditWindow" parent="AdwApplicationWindow">
+    <property name="title" translatable="yes">BLOUedit</property>
+    <property name="default-width">1280</property>
+    <property name="default-height">720</property>
+    <property name="content">
+      <object class="AdwToolbarView">
+        <child type="top">
+          <object class="AdwHeaderBar" id="header_bar">
+            <property name="title-widget">
+              <object class="AdwViewSwitcherTitle" id="title">
+                <property name="stack">stack</property>
+                <property name="title" translatable="yes">BLOUedit</property>
+              </object>
+            </property>
+            <child type="start">
+              <object class="GtkButton" id="new_project_button">
+                <property name="icon-name">document-new-symbolic</property>
+                <property name="tooltip-text" translatable="yes">New Project</property>
+                <property name="action-name">win.new-project</property>
+              </object>
+            </child>
+            <child type="start">
+              <object class="GtkButton" id="open_button">
+                <property name="icon-name">document-open-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Open Project</property>
+                <property name="action-name">win.open</property>
+              </object>
+            </child>
+            <child type="start">
+              <object class="GtkButton" id="save_button">
+                <property name="icon-name">document-save-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Save Project</property>
+                <property name="action-name">win.save</property>
+              </object>
+            </child>
+            <child type="end">
+              <object class="GtkMenuButton" id="menu_button">
+                <property name="icon-name">open-menu-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Main Menu</property>
+                <property name="menu-model">primary_menu</property>
+                <property name="primary">true</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <property name="content">
+          <object class="AdwViewStack" id="stack">
+            <property name="vexpand">true</property>
+            <child>
+              <object class="AdwViewStackPage">
+                <property name="name">editor</property>
+                <property name="title" translatable="yes">Editor</property>
+                <property name="icon-name">video-display-symbolic</property>
+                <property name="child">
+                  <object class="GtkBox" id="content_box">
+                    <property name="orientation">vertical</property>
+                    <child>
+                      <object class="GtkPaned" id="main_paned">
+                        <property name="orientation">vertical</property>
+                        <property name="position">400</property>
+                        <property name="vexpand">true</property>
+                        <child>
+                          <object class="GtkPaned" id="side_paned">
+                            <property name="orientation">horizontal</property>
+                            <property name="position">250</property>
+                            <property name="vexpand">true</property>
+                            <child>
+                              <object class="GtkBox">
+                                <property name="orientation">vertical</property>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label">Media Library</property>
+                                    <property name="margin-top">12</property>
+                                    <property name="margin-bottom">12</property>
+                                    <style>
+                                      <class name="title-4"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkScrolledWindow">
+                                    <property name="vexpand">true</property>
+                                    <!-- Media library content will be added here -->
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox">
+                                <property name="orientation">vertical</property>
+                                <property name="vexpand">true</property>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label">Preview</property>
+                                    <property name="margin-top">12</property>
+                                    <property name="margin-bottom">12</property>
+                                    <style>
+                                      <class name="title-4"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkBox">
+                                    <property name="vexpand">true</property>
+                                    <!-- Video player will be added here -->
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkBox">
+                                    <property name="orientation">horizontal</property>
+                                    <property name="halign">center</property>
+                                    <property name="margin-top">6</property>
+                                    <property name="margin-bottom">6</property>
+                                    <property name="spacing">6</property>
+                                    <child>
+                                      <object class="GtkButton">
+                                        <property name="icon-name">media-skip-backward-symbolic</property>
+                                        <property name="tooltip-text" translatable="yes">Previous Frame</property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkButton">
+                                        <property name="icon-name">media-playback-start-symbolic</property>
+                                        <property name="tooltip-text" translatable="yes">Play/Pause</property>
+                                        <property name="action-name">win.play-pause</property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkButton">
+                                        <property name="icon-name">media-playback-stop-symbolic</property>
+                                        <property name="tooltip-text" translatable="yes">Stop</property>
+                                        <property name="action-name">win.stop</property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkButton">
+                                        <property name="icon-name">media-skip-forward-symbolic</property>
+                                        <property name="tooltip-text" translatable="yes">Next Frame</property>
+                                      </object>
+                                    </child>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkBox">
+                            <property name="orientation">vertical</property>
+                            <child>
+                              <object class="GtkBox">
+                                <property name="orientation">horizontal</property>
+                                <property name="margin-top">6</property>
+                                <property name="margin-bottom">6</property>
+                                <property name="spacing">6</property>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="label" translatable="yes">Split</property>
+                                    <property name="tooltip-text" translatable="yes">Split Clip</property>
+                                    <property name="action-name">win.split-clip</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="label" translatable="yes">Transition</property>
+                                    <property name="tooltip-text" translatable="yes">Add Transition</property>
+                                    <property name="action-name">win.add-transition</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="label" translatable="yes">Effect</property>
+                                    <property name="tooltip-text" translatable="yes">Add Effect</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="label" translatable="yes">Text</property>
+                                    <property name="tooltip-text" translatable="yes">Add Text</property>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkScrolledWindow">
+                                <property name="vexpand">true</property>
+                                <!-- Timeline will be added here -->
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </property>
+              </object>
+            </child>
+            <child>
+              <object class="AdwViewStackPage">
+                <property name="name">effects</property>
+                <property name="title" translatable="yes">Effects</property>
+                <property name="icon-name">applications-graphics-symbolic</property>
+                <property name="child">
+                  <object class="GtkBox" id="effects_box">
+                    <property name="orientation">vertical</property>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label">Effects Panel</property>
+                        <property name="margin-top">12</property>
+                        <property name="margin-bottom">12</property>
+                        <style>
+                          <class name="title-2"/>
+                        </style>
+                      </object>
+                    </child>
+                    <!-- Effects content will be added here -->
+                  </object>
+                </property>
+              </object>
+            </child>
+            <child>
+              <object class="AdwViewStackPage">
+                <property name="name">ai</property>
+                <property name="title" translatable="yes">AI</property>
+                <property name="icon-name">system-run-symbolic</property>
+                <property name="child">
+                  <object class="GtkBox" id="ai_box">
+                    <property name="orientation">vertical</property>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label">AI Tools</property>
+                        <property name="margin-top">12</property>
+                        <property name="margin-bottom">12</property>
+                        <style>
+                          <class name="title-2"/>
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox">
+                        <property name="orientation">vertical</property>
+                        <property name="margin-start">12</property>
+                        <property name="margin-end">12</property>
+                        <property name="spacing">12</property>
+                        <child>
+                          <object class="GtkButton">
+                            <property name="label" translatable="yes">Auto Cut Scene Detection</property>
+                            <property name="action-name">win.auto-cut</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkButton">
+                            <property name="label" translatable="yes">Style Transfer</property>
+                            <property name="action-name">win.style-transfer</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkButton">
+                            <property name="label" translatable="yes">Enhance Video</property>
+                            <property name="action-name">win.enhance-video</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </property>
+              </object>
+            </child>
+          </object>
+        </property>
+      </object>
+    </property>
+  </template>
+  
+  <menu id="primary_menu">
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">_New Project</attribute>
+        <attribute name="action">win.new-project</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Open</attribute>
+        <attribute name="action">win.open</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Save</attribute>
+        <attribute name="action">win.save</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">Save _As</attribute>
+        <attribute name="action">win.save-as</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Export</attribute>
+        <attribute name="action">win.export</attribute>
+      </item>
+    </section>
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">_Preferences</attribute>
+        <attribute name="action">app.preferences</attribute>
+      </item>
+    </section>
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">_About BLOUedit</attribute>
+        <attribute name="action">app.about</attribute>
+      </item>
+    </section>
+  </menu>
+</interface> 

@@ -1,0 +1,87 @@
+/* BLOUedit CSS Styles */
+
+/* Video player styling */
+.video-player {
+  background-color: #000000;
+  border-radius: 4px;
+}
+
+/* Timeline styling */
+.timeline-track {
+  background-color: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  margin: 2px 0;
+  min-height: 40px;
+}
+
+.timeline-clip {
+  background-color: #3584e4;
+  color: #ffffff;
+  border-radius: 4px;
+  min-height: 36px;
+  margin: 2px;
+}
+
+.timeline-clip.video {
+  background-color: #3584e4;
+}
+
+.timeline-clip.audio {
+  background-color: #33d17a;
+}
+
+.timeline-clip.text {
+  background-color: #e66100;
+}
+
+.timeline-clip.effect {
+  background-color: #9141ac;
+}
+
+.timeline-transition {
+  background-color: #f5c211;
+  border-radius: 4px;
+  min-height: 36px;
+  margin: 2px;
+}
+
+.timeline-current-position {
+  background-color: #c01c28;
+  min-width: 2px;
+}
+
+/* Effects panel styling */
+.effects-panel button {
+  margin: 4px;
+}
+
+.effects-group {
+  margin: 6px;
+  padding: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+}
+
+/* Media library styling */
+.media-thumbnail {
+  border-radius: 4px;
+  margin: 4px;
+}
+
+.media-thumbnail:hover {
+  outline: 2px solid #3584e4;
+}
+
+/* AI tools styling */
+.ai-tool-button {
+  margin: 12px;
+  padding: 8px;
+}
+
+/* Common styling */
+.toolbar {
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 6px;
+  margin: 4px;
+  padding: 4px;
+} 

@@ -1,0 +1,574 @@
+app-id: com.blouedit.BLOUedit
+runtime: org.gnome.Platform
+runtime-version: '44'
+sdk: org.gnome.Sdk
+command: blouedit
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=host
+  - --filesystem=xdg-videos
+  - --filesystem=xdg-pictures
+  - --socket=pulseaudio
+  - --filesystem=host:ro
+  - --filesystem=/usr/share/fonts:ro
+  - --filesystem=/usr/local/share/fonts:ro
+  - --filesystem=~/.fonts:ro
+  - --filesystem=~/.local/share/fonts:ro
+  - --share=network
+modules:
+  - name: gstreamer-plugins
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib/gstreamer-1.0
+      - ldconfig
+    cleanup:
+      - /include
+      - /share/gtk-doc
+  
+  - name: blouedit
+    buildsystem: simple
+    build-commands:
+      - cc -O2 -g -o blouedit blouedit.c `pkg-config --cflags --libs gtk4 gstreamer-1.0 gstreamer-video-1.0 gstreamer-audio-1.0 gstreamer-pbutils-1.0`
+      - install -D blouedit /app/bin/blouedit
+      - mkdir -p /app/share/icons/hicolor/scalable/apps
+      - install -D blouedit-icon.svg /app/share/icons/hicolor/scalable/apps/com.blouedit.BLOUedit.svg
+      - install -D blouedit.desktop /app/share/applications/com.blouedit.BLOUedit.desktop
+    sources:
+      - type: inline
+        dest-filename: blouedit.desktop
+        contents: |
+          [Desktop Entry]
+          Name=BLOUedit
+          Comment=Professional Video Editor
+          Exec=blouedit
+          Icon=com.blouedit.BLOUedit
+          Terminal=false
+          Type=Application
+          Categories=AudioVideo;Video;AudioVideoEditing;
+          StartupNotify=true
+      - type: inline
+        dest-filename: blouedit-icon.svg
+        contents: |
+          <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+          <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+            <rect width="512" height="512" rx="60" fill="#2c3e50"/>
+            <path d="M 120,140 H 390 V 370 H 120 Z" fill="none" stroke="#ecf0f1" stroke-width="16"/>
+            <circle cx="160" cy="180" r="20" fill="#e74c3c"/>
+            <circle cx="160" cy="240" r="20" fill="#f1c40f"/>
+            <circle cx="160" cy="300" r="20" fill="#2ecc71"/>
+            <path d="M 200,180 H 350 M 200,240 H 350 M 200,300 H 350" stroke="#ecf0f1" stroke-width="12"/>
+          </svg>
+      - type: inline
+        dest-filename: blouedit.c
+        contents: |
+          #include <gtk/gtk.h>
+          #include <gst/gst.h>
+          #include <gst/video/videooverlay.h>
+          
+          typedef struct {
+              GtkWidget *main_window;
+              GtkWidget *timeline;
+              GtkWidget *preview;
+              GtkWidget *media_library;
+              GtkWidget *toolbar;
+              GtkWidget *open_button;
+              GtkWidget *new_button;
+              GtkWidget *play_button;
+              GtkWidget *effect_button;
+              GtkFileChooserDialog *file_chooser;
+              
+              GtkListStore *media_store;
+              GtkTreeView *media_view;
+              
+              GstElement *pipeline;
+              GstElement *source;
+              GstElement *sink;
+              gulong video_window_handle;
+              gboolean playing;
+              
+              GtkAdjustment *timeline_adj;
+              GtkWidget *timeline_scale;
+              GtkWidget *timeline_tracks[3];
+              GtkWidget *timeline_clips[10];
+              int clip_count;
+              
+              char *loaded_files[50];
+              int file_count;
+          } BlouEditApp;
+          
+          // Global app instance for callbacks
+          BlouEditApp *global_app = NULL;
+          
+          static void add_media_file(BlouEditApp *app, const char *filename) {
+              GtkTreeIter iter;
+              const char *basename = g_path_get_basename(filename);
+              
+              gtk_list_store_append(app->media_store, &iter);
+              gtk_list_store_set(app->media_store, &iter, 
+                                0, basename, 
+                                1, filename, -1);
+              
+              if (app->file_count < 50) {
+                  app->loaded_files[app->file_count++] = g_strdup(filename);
+              }
+              
+              g_free((gpointer)basename);
+          }
+          
+          static void media_item_activated(GtkTreeView *tree_view, GtkTreePath *path, 
+                                          GtkTreeViewColumn *column, gpointer user_data) {
+              BlouEditApp *app = (BlouEditApp*)user_data;
+              GtkTreeIter iter;
+              GtkTreeModel *model = gtk_tree_view_get_model(tree_view);
+              
+              if (gtk_tree_model_get_iter(model, &iter, path)) {
+                  gchar *filename;
+                  gtk_tree_model_get(model, &iter, 1, &filename, -1);
+                  
+                  // Create a timeline clip for this media
+                  if (app->clip_count < 10) {
+                      int track = app->clip_count % 3;
+                      GtkWidget *clip = gtk_button_new_with_label(g_path_get_basename(filename));
+                      gtk_widget_set_size_request(clip, 120, 30);
+                      gtk_widget_set_margin_start(clip, app->clip_count * 30);
+                      
+                      // Add different colors for different track types
+                      GtkCssProvider *provider = gtk_css_provider_new();
+                      const char *css_colors[] = {
+                          "button { background: #3498db; color: white; }",
+                          "button { background: #e74c3c; color: white; }",
+                          "button { background: #2ecc71; color: white; }"
+                      };
+                      gtk_css_provider_load_from_data(provider, css_colors[track], -1);
+                      gtk_style_context_add_provider(
+                          gtk_widget_get_style_context(clip),
+                          GTK_STYLE_PROVIDER(provider),
+                          GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+                      );
+                      g_object_unref(provider);
+                      
+                      gtk_box_append(GTK_BOX(app->timeline_tracks[track]), clip);
+                      app->timeline_clips[app->clip_count++] = clip;
+                      
+                      // Try to load the file into the preview
+                      if (app->pipeline != NULL) {
+                          gst_element_set_state(app->pipeline, GST_STATE_NULL);
+                          g_object_unref(app->pipeline);
+                      }
+                      
+                      app->pipeline = gst_pipeline_new("video-player");
+                      app->source = gst_element_factory_make("filesrc", "file-source");
+                      GstElement *decode = gst_element_factory_make("decodebin", "decoder");
+                      app->sink = gst_element_factory_make("gtksink", "video-output");
+                      
+                      if (!app->pipeline || !app->source || !decode || !app->sink) {
+                          g_print("Failed to create elements\n");
+                          return;
+                      }
+                      
+                      g_object_set(G_OBJECT(app->source), "location", filename, NULL);
+                      
+                      gst_bin_add_many(GST_BIN(app->pipeline), app->source, decode, app->sink, NULL);
+                      gst_element_link(app->source, decode);
+                      
+                      // Get the video widget from gtksink and add it to preview
+                      GtkWidget *video_widget;
+                      g_object_get(app->sink, "widget", &video_widget, NULL);
+                      
+                      // Remove any existing widget in preview
+                      GtkWidget *child = gtk_widget_get_first_child(app->preview);
+                      if (child)
+                          gtk_widget_unparent(child);
+                          
+                      gtk_box_append(GTK_BOX(app->preview), video_widget);
+                      
+                      // Start playing
+                      gst_element_set_state(app->pipeline, GST_STATE_PLAYING);
+                      app->playing = TRUE;
+                  }
+                  
+                  g_free(filename);
+              }
+          }
+          
+          static void create_media_library(BlouEditApp *app) {
+              GtkWidget *scrolled = gtk_scrolled_window_new();
+              gtk_widget_set_vexpand(scrolled, TRUE);
+              
+              app->media_store = gtk_list_store_new(2, G_TYPE_STRING, G_TYPE_STRING);
+              app->media_view = GTK_TREE_VIEW(gtk_tree_view_new_with_model(GTK_TREE_MODEL(app->media_store)));
+              
+              GtkTreeViewColumn *column = gtk_tree_view_column_new_with_attributes(
+                  "Media Files", 
+                  gtk_cell_renderer_text_new(),
+                  "text", 0,
+                  NULL);
+              
+              gtk_tree_view_append_column(app->media_view, column);
+              gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), GTK_WIDGET(app->media_view));
+              
+              gtk_box_append(GTK_BOX(app->media_library), scrolled);
+              
+              g_signal_connect(app->media_view, "row-activated", 
+                              G_CALLBACK(media_item_activated), app);
+          }
+          
+          // File chooser response handler
+          static void on_file_chooser_response(GtkDialog *dialog, int response, gpointer user_data) {
+              BlouEditApp *app = (BlouEditApp*)user_data;
+              
+              if (response == GTK_RESPONSE_ACCEPT) {
+                  GFile *file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(dialog));
+                  char *filename = g_file_get_path(file);
+                  
+                  add_media_file(app, filename);
+                  
+                  g_free(filename);
+                  g_object_unref(file);
+              }
+              
+              gtk_window_destroy(GTK_WINDOW(dialog));
+          }
+          
+          static void on_open_clicked(GtkButton *button, gpointer user_data) {
+              BlouEditApp *app = (BlouEditApp*)user_data;
+              
+              app->file_chooser = GTK_FILE_CHOOSER_DIALOG(
+                  gtk_file_chooser_dialog_new("Open Media",
+                                            GTK_WINDOW(app->main_window),
+                                            GTK_FILE_CHOOSER_ACTION_OPEN,
+                                            "_Cancel", GTK_RESPONSE_CANCEL,
+                                            "_Open", GTK_RESPONSE_ACCEPT,
+                                            NULL));
+              
+              // Add filters for video files
+              GtkFileFilter *filter = gtk_file_filter_new();
+              gtk_file_filter_set_name(filter, "Video Files");
+              gtk_file_filter_add_mime_type(filter, "video/*");
+              gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(app->file_chooser), filter);
+              
+              filter = gtk_file_filter_new();
+              gtk_file_filter_set_name(filter, "All Files");
+              gtk_file_filter_add_pattern(filter, "*");
+              gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(app->file_chooser), filter);
+              
+              gtk_window_present(GTK_WINDOW(app->file_chooser));
+              
+              g_signal_connect(app->file_chooser, "response", 
+                              G_CALLBACK(on_file_chooser_response), app);
+          }
+          
+          static void on_play_clicked(GtkButton *button, gpointer user_data) {
+              BlouEditApp *app = (BlouEditApp*)user_data;
+              
+              if (app->pipeline) {
+                  if (app->playing) {
+                      gst_element_set_state(app->pipeline, GST_STATE_PAUSED);
+                      gtk_button_set_icon_name(button, "media-playback-start");
+                      app->playing = FALSE;
+                  } else {
+                      gst_element_set_state(app->pipeline, GST_STATE_PLAYING);
+                      gtk_button_set_icon_name(button, "media-playback-pause");
+                      app->playing = TRUE;
+                  }
+              }
+          }
+          
+          // Simple dialog response handler
+          static void on_dialog_response(GtkDialog *dialog, int response, gpointer user_data) {
+              gtk_window_destroy(GTK_WINDOW(dialog));
+          }
+          
+          static void on_new_project_clicked(GtkButton *button, gpointer user_data) {
+              BlouEditApp *app = (BlouEditApp*)user_data;
+              
+              // Reset timeline clips
+              for (int i = 0; i < app->clip_count; i++) {
+                  gtk_widget_unparent(app->timeline_clips[i]);
+              }
+              app->clip_count = 0;
+              
+              // Clear media library
+              gtk_list_store_clear(app->media_store);
+              for (int i = 0; i < app->file_count; i++) {
+                  g_free(app->loaded_files[i]);
+              }
+              app->file_count = 0;
+              
+              // Stop any playing video
+              if (app->pipeline) {
+                  gst_element_set_state(app->pipeline, GST_STATE_NULL);
+                  app->playing = FALSE;
+                  gtk_button_set_icon_name(GTK_BUTTON(app->play_button), "media-playback-start");
+              }
+              
+              // Show new project dialog
+              GtkWidget *dialog = gtk_message_dialog_new(
+                  GTK_WINDOW(app->main_window),
+                  GTK_DIALOG_MODAL,
+                  GTK_MESSAGE_INFO,
+                  GTK_BUTTONS_OK,
+                  "새 프로젝트가 생성되었습니다.\n미디어 파일을 불러오려면 '열기' 버튼을 클릭하세요."
+              );
+              gtk_window_present(GTK_WINDOW(dialog));
+              
+              g_signal_connect(dialog, "response", G_CALLBACK(on_dialog_response), NULL);
+          }
+          
+          static void on_effect_clicked(GtkButton *button, gpointer user_data) {
+              BlouEditApp *app = (BlouEditApp*)user_data;
+              
+              // Show effects dialog
+              GtkWidget *dialog = gtk_dialog_new_with_buttons(
+                  "비디오 효과",
+                  GTK_WINDOW(app->main_window),
+                  GTK_DIALOG_MODAL,
+                  "적용", GTK_RESPONSE_ACCEPT,
+                  "취소", GTK_RESPONSE_CANCEL,
+                  NULL
+              );
+              
+              GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+              gtk_widget_set_margin_start(content_area, 12);
+              gtk_widget_set_margin_end(content_area, 12);
+              gtk_widget_set_margin_top(content_area, 12);
+              gtk_widget_set_margin_bottom(content_area, 12);
+              
+              GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+              gtk_box_append(GTK_BOX(content_area), box);
+              
+              GtkWidget *label = gtk_label_new("사용 가능한 효과:");
+              gtk_widget_set_halign(label, GTK_ALIGN_START);
+              gtk_box_append(GTK_BOX(box), label);
+              
+              // Effects list
+              const char *effects[] = {
+                  "페이드 인/아웃", "블러", "색상 조정", "크로마키", "회전", "AI 스타일 변환"
+              };
+              
+              for (int i = 0; i < G_N_ELEMENTS(effects); i++) {
+                  GtkWidget *effect_button = gtk_button_new_with_label(effects[i]);
+                  gtk_widget_set_margin_top(effect_button, 3);
+                  gtk_box_append(GTK_BOX(box), effect_button);
+              }
+              
+              gtk_window_present(GTK_WINDOW(dialog));
+              
+              g_signal_connect(dialog, "response", G_CALLBACK(on_dialog_response), NULL);
+          }
+          
+          static void activate(GtkApplication *app, gpointer user_data) {
+              BlouEditApp *blouedit_app = g_new0(BlouEditApp, 1);
+              global_app = blouedit_app;  // Set the global app reference
+              
+              blouedit_app->playing = FALSE;
+              blouedit_app->clip_count = 0;
+              blouedit_app->file_count = 0;
+              
+              // Main window
+              blouedit_app->main_window = gtk_application_window_new(app);
+              gtk_window_set_title(GTK_WINDOW(blouedit_app->main_window), "BLOUedit");
+              gtk_window_set_default_size(GTK_WINDOW(blouedit_app->main_window), 1280, 720);
+              
+              // Main layout
+              GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+              
+              // Toolbar
+              blouedit_app->toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+              gtk_widget_set_margin_start(blouedit_app->toolbar, 6);
+              gtk_widget_set_margin_end(blouedit_app->toolbar, 6);
+              gtk_widget_set_margin_top(blouedit_app->toolbar, 6);
+              gtk_widget_set_margin_bottom(blouedit_app->toolbar, 6);
+              
+              // New project button
+              blouedit_app->new_button = gtk_button_new_from_icon_name("document-new");
+              gtk_widget_set_tooltip_text(blouedit_app->new_button, "새 프로젝트");
+              g_signal_connect(blouedit_app->new_button, "clicked", G_CALLBACK(on_new_project_clicked), blouedit_app);
+              gtk_box_append(GTK_BOX(blouedit_app->toolbar), blouedit_app->new_button);
+              
+              // Open button
+              blouedit_app->open_button = gtk_button_new_from_icon_name("document-open");
+              gtk_widget_set_tooltip_text(blouedit_app->open_button, "미디어 파일 열기");
+              g_signal_connect(blouedit_app->open_button, "clicked", G_CALLBACK(on_open_clicked), blouedit_app);
+              gtk_box_append(GTK_BOX(blouedit_app->toolbar), blouedit_app->open_button);
+              
+              // Separator
+              GtkWidget *separator = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+              gtk_box_append(GTK_BOX(blouedit_app->toolbar), separator);
+              
+              // Play button
+              blouedit_app->play_button = gtk_button_new_from_icon_name("media-playback-start");
+              gtk_widget_set_tooltip_text(blouedit_app->play_button, "재생/일시정지");
+              g_signal_connect(blouedit_app->play_button, "clicked", G_CALLBACK(on_play_clicked), blouedit_app);
+              gtk_box_append(GTK_BOX(blouedit_app->toolbar), blouedit_app->play_button);
+              
+              // Effect button
+              blouedit_app->effect_button = gtk_button_new_from_icon_name("media-eq");
+              gtk_widget_set_tooltip_text(blouedit_app->effect_button, "효과 추가");
+              g_signal_connect(blouedit_app->effect_button, "clicked", G_CALLBACK(on_effect_clicked), blouedit_app);
+              gtk_box_append(GTK_BOX(blouedit_app->toolbar), blouedit_app->effect_button);
+              
+              // Add title label with flex space
+              GtkWidget *title_label = gtk_label_new("BLOUedit - 프로페셔널 비디오 편집기");
+              gtk_widget_set_hexpand(title_label, TRUE);
+              gtk_box_append(GTK_BOX(blouedit_app->toolbar), title_label);
+              
+              // Add toolbar to main layout
+              gtk_box_append(GTK_BOX(main_box), blouedit_app->toolbar);
+              
+              // Main content area with preview, timeline, and media library
+              GtkWidget *content_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+              gtk_widget_set_vexpand(content_box, TRUE);
+              
+              // Left sidebar for media library
+              blouedit_app->media_library = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+              gtk_widget_set_size_request(blouedit_app->media_library, 250, -1);
+              
+              GtkWidget *media_header = gtk_label_new("미디어 라이브러리");
+              gtk_widget_add_css_class(media_header, "title-4");
+              gtk_widget_set_margin_top(media_header, 6);
+              gtk_widget_set_margin_bottom(media_header, 6);
+              gtk_box_append(GTK_BOX(blouedit_app->media_library), media_header);
+              
+              create_media_library(blouedit_app);
+              
+              // Right side with preview and timeline
+              GtkWidget *right_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+              gtk_widget_set_hexpand(right_box, TRUE);
+              
+              // Preview area
+              blouedit_app->preview = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+              gtk_widget_set_vexpand(blouedit_app->preview, TRUE);
+              gtk_widget_set_size_request(blouedit_app->preview, -1, 300);
+              gtk_widget_add_css_class(blouedit_app->preview, "preview-area");
+              
+              GtkCssProvider *preview_provider = gtk_css_provider_new();
+              gtk_css_provider_load_from_data(preview_provider, 
+                  ".preview-area { background-color: #1e1e1e; border-radius: 3px; }", -1);
+              gtk_style_context_add_provider_for_display(
+                  gtk_widget_get_display(blouedit_app->preview),
+                  GTK_STYLE_PROVIDER(preview_provider),
+                  GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+              );
+              g_object_unref(preview_provider);
+              
+              // Timeline area
+              blouedit_app->timeline = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+              gtk_widget_set_vexpand(blouedit_app->timeline, TRUE);
+              gtk_widget_set_margin_top(blouedit_app->timeline, 6);
+              gtk_widget_set_margin_bottom(blouedit_app->timeline, 6);
+              
+              GtkWidget *timeline_label = gtk_label_new("타임라인");
+              gtk_widget_set_halign(timeline_label, GTK_ALIGN_START);
+              gtk_widget_set_margin_start(timeline_label, 6);
+              gtk_widget_set_margin_bottom(timeline_label, 6);
+              gtk_box_append(GTK_BOX(blouedit_app->timeline), timeline_label);
+              
+              // Timeline tracks
+              GtkWidget *tracks_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
+              gtk_widget_set_margin_start(tracks_box, 6);
+              gtk_widget_set_margin_end(tracks_box, 6);
+              
+              const char *track_names[] = {"비디오 트랙", "오디오 트랙", "효과 트랙"};
+              const char *track_colors[] = {
+                  "background-color: rgba(52, 152, 219, 0.2);",
+                  "background-color: rgba(231, 76, 60, 0.2);",
+                  "background-color: rgba(46, 204, 113, 0.2);"
+              };
+              
+              for (int i = 0; i < 3; i++) {
+                  GtkWidget *track_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+                  
+                  GtkWidget *track_label = gtk_label_new(track_names[i]);
+                  gtk_widget_set_size_request(track_label, 100, -1);
+                  gtk_widget_set_halign(track_label, GTK_ALIGN_START);
+                  gtk_box_append(GTK_BOX(track_row), track_label);
+                  
+                  blouedit_app->timeline_tracks[i] = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 3);
+                  gtk_widget_set_hexpand(blouedit_app->timeline_tracks[i], TRUE);
+                  
+                  // Create a unique class name for each track
+                  char class_name[20];
+                  g_snprintf(class_name, sizeof(class_name), "track-%d", i);
+                  gtk_widget_add_css_class(blouedit_app->timeline_tracks[i], class_name);
+                  
+                  GtkCssProvider *track_provider = gtk_css_provider_new();
+                  char css[100];
+                  g_snprintf(css, sizeof(css), ".track-%d { %s border-radius: 3px; min-height: 40px; }", 
+                            i, track_colors[i]);
+                  gtk_css_provider_load_from_data(track_provider, css, -1);
+                  gtk_style_context_add_provider_for_display(
+                      gtk_widget_get_display(blouedit_app->timeline_tracks[i]),
+                      GTK_STYLE_PROVIDER(track_provider),
+                      GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+                  );
+                  g_object_unref(track_provider);
+                  
+                  gtk_box_append(GTK_BOX(track_row), blouedit_app->timeline_tracks[i]);
+                  gtk_box_append(GTK_BOX(tracks_box), track_row);
+              }
+              
+              gtk_box_append(GTK_BOX(blouedit_app->timeline), tracks_box);
+              
+              // Timeline scale
+              blouedit_app->timeline_adj = gtk_adjustment_new(0, 0, 100, 1, 10, 0);
+              blouedit_app->timeline_scale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, blouedit_app->timeline_adj);
+              gtk_scale_set_draw_value(GTK_SCALE(blouedit_app->timeline_scale), FALSE);
+              gtk_widget_set_margin_start(blouedit_app->timeline_scale, 106);
+              gtk_widget_set_margin_end(blouedit_app->timeline_scale, 6);
+              gtk_box_append(GTK_BOX(blouedit_app->timeline), blouedit_app->timeline_scale);
+              
+              // Add elements to right box
+              gtk_box_append(GTK_BOX(right_box), blouedit_app->preview);
+              gtk_box_append(GTK_BOX(right_box), blouedit_app->timeline);
+              
+              // Add all boxes to content area
+              gtk_box_append(GTK_BOX(content_box), blouedit_app->media_library);
+              gtk_box_append(GTK_BOX(content_box), right_box);
+              
+              // Add content to main layout
+              gtk_box_append(GTK_BOX(main_box), content_box);
+              
+              // Add status bar
+              GtkWidget *statusbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+              GtkWidget *status_label = gtk_label_new("준비");
+              gtk_widget_set_margin_start(status_label, 6);
+              gtk_widget_set_margin_top(status_label, 3);
+              gtk_widget_set_margin_bottom(status_label, 3);
+              gtk_box_append(GTK_BOX(statusbar), status_label);
+              gtk_box_append(GTK_BOX(main_box), statusbar);
+              
+              // Set main content for window
+              gtk_window_set_child(GTK_WINDOW(blouedit_app->main_window), main_box);
+              
+              // Initialize GStreamer
+              gst_init(NULL, NULL);
+              
+              // Display window
+              gtk_window_present(GTK_WINDOW(blouedit_app->main_window));
+              
+              // Initialize with a welcome dialog
+              GtkWidget *welcome = gtk_message_dialog_new(
+                  GTK_WINDOW(blouedit_app->main_window),
+                  GTK_DIALOG_MODAL,
+                  GTK_MESSAGE_INFO,
+                  GTK_BUTTONS_OK,
+                  "BLOUedit 비디오 편집기에 오신 것을 환영합니다!\n\n"
+                  "새 프로젝트를 시작하려면 '새 프로젝트' 버튼을 클릭하시고,\n"
+                  "미디어 파일을 불러오려면 '미디어 파일 열기' 버튼을 클릭하세요."
+              );
+              gtk_window_present(GTK_WINDOW(welcome));
+              
+              g_signal_connect(welcome, "response", G_CALLBACK(on_dialog_response), NULL);
+          }
+          
+          int main(int argc, char *argv[]) {
+              GtkApplication *app = gtk_application_new("com.blouedit.BLOUedit", G_APPLICATION_DEFAULT_FLAGS);
+              g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
+              int status = g_application_run(G_APPLICATION(app), argc, argv);
+              g_object_unref(app);
+              return status;
+          } 
