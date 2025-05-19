@@ -36,6 +36,18 @@ typedef struct {
     GtkWidget *text_library;
     GtkWidget *stickers_library;
     
+    // AI 기능 컴포넌트
+    GtkWidget *ai_stack;
+    GtkWidget *ai_tools;
+    
+    // 고급 비디오 기능 컴포넌트
+    GtkWidget *advanced_video_stack;
+    GtkWidget *advanced_video_tools;
+    
+    // 오디오 편집 기능 컴포넌트
+    GtkWidget *audio_stack;
+    GtkWidget *audio_tools;
+    
     // 타임라인 컴포넌트
     GtkWidget *timeline;
     GtkWidget *timeline_tracks[3]; // 비디오, 오디오, 효과 트랙
@@ -108,6 +120,7 @@ static void deselect_all_clips(BlouEditApp *app);
 static TimelineClip* create_timeline_clip(BlouEditApp *app, const char *filename, int track);
 static void delete_selected_clip(BlouEditApp *app);
 static void create_export_pipeline(BlouEditApp *app, const char *output_file);
+static void on_pad_added(GstElement *element, GstPad *pad, gpointer data);
 
 // 클립 생성자 함수
 static TimelineClip* create_timeline_clip(BlouEditApp *app, const char *filename, int track) {
@@ -395,16 +408,34 @@ static void create_export_pipeline(BlouEditApp *app, const char *output_file) {
     g_print("내보내기 완료: %s\n", output_file);
 }
 
-// Dynamic pad connection handler
+// GStreamer 디코더 패드 추가 콜백
 static void on_pad_added(GstElement *element, GstPad *pad, gpointer data) {
-    GstElement *sink = (GstElement *)data;
-    GstPad *sinkpad = gst_element_get_static_pad(sink, "sink");
+    GstElement *target = (GstElement *)data;
+    GstPad *sink_pad = gst_element_get_static_pad(target, "sink");
     
-    if (gst_pad_link(pad, sinkpad) != GST_PAD_LINK_OK) {
-        g_print("Failed to link pads\n");
+    if (gst_pad_link(pad, sink_pad) != GST_PAD_LINK_OK) {
+        g_print("Failed to link decoder with converter\n");
     }
     
-    gst_object_unref(sinkpad);
+    gst_object_unref(sink_pad);
+}
+
+// 내보내기 대화상자 응답 처리
+static void on_export_dialog_response(GtkDialog *dialog, int response, gpointer user_data) {
+    BlouEditApp *app = (BlouEditApp *)user_data;
+    
+    if (response == GTK_RESPONSE_ACCEPT) {
+        GFile *file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(dialog));
+        char *path = g_file_get_path(file);
+        
+        // 내보내기 파이프라인 생성 및 시작
+        create_export_pipeline(app, path);
+        
+        g_free(path);
+        g_object_unref(file);
+    }
+    
+    gtk_window_destroy(GTK_WINDOW(dialog));
 }
 
 static void add_media_file(BlouEditApp *app, const char *filename) {
@@ -601,24 +632,6 @@ static void on_export_clicked(GtkButton *button, gpointer user_data) {
     g_signal_connect(chooser, "response", G_CALLBACK(on_export_dialog_response), app);
 }
 
-// 내보내기 대화상자 응답 핸들러
-static void on_export_dialog_response(GtkDialog *dialog, int response, gpointer user_data) {
-    BlouEditApp *app = (BlouEditApp*)user_data;
-    
-    if (response == GTK_RESPONSE_ACCEPT) {
-        GFile *file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(dialog));
-        char *filename = g_file_get_path(file);
-        
-        // 내보내기 시작
-        create_export_pipeline(app, filename);
-        
-        g_free(filename);
-        g_object_unref(file);
-    }
-    
-    gtk_window_destroy(GTK_WINDOW(dialog));
-}
-
 // 분할 버튼
 static void on_split_clicked(GtkButton *button, gpointer user_data) {
     BlouEditApp *app = (BlouEditApp*)user_data;
@@ -806,8 +819,98 @@ static void activate(GtkApplication *app, gpointer user_data) {
     
     create_media_library(blouedit_app);
     
-    // 스택에 미디어 라이브러리 추가
+    // AI 도구 생성
+    blouedit_app->ai_tools = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    GtkWidget *ai_header = gtk_label_new("AI 기능");
+    gtk_widget_add_css_class(ai_header, "title-4");
+    gtk_widget_set_margin_top(ai_header, 6);
+    gtk_widget_set_margin_bottom(ai_header, 6);
+    gtk_box_append(GTK_BOX(blouedit_app->ai_tools), ai_header);
+    
+    // AI 버튼 컨테이너
+    GtkWidget *ai_buttons = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_margin_start(ai_buttons, 12);
+    gtk_widget_set_margin_end(ai_buttons, 12);
+    
+    // AI 기능 버튼 생성
+    const char *ai_functions[] = {
+        "텍스트 → 영상 변환", "오디오 → 영상 변환", "이미지 → 영상 변환",
+        "스토리보드 생성기", "썸네일 생성기", "음악 생성기",
+        "음성 제거기", "음성 클로닝", "얼굴 모자이크",
+        "자동 자막 생성", "스마트 컷아웃", "음성 → 텍스트 변환",
+        "텍스트 → 음성 변환", "스티커 생성기", "이미지 생성기",
+        "AI 카피라이팅", "프레임 보간", "씬 감지",
+        "스타일 트랜스퍼", "화질 향상"
+    };
+    
+    for (int i = 0; i < 20; i++) {
+        GtkWidget *button = gtk_button_new_with_label(ai_functions[i]);
+        gtk_box_append(GTK_BOX(ai_buttons), button);
+    }
+    
+    gtk_box_append(GTK_BOX(blouedit_app->ai_tools), ai_buttons);
+    
+    // 고급 비디오 도구 생성
+    blouedit_app->advanced_video_tools = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    GtkWidget *adv_header = gtk_label_new("고급 비디오 편집");
+    gtk_widget_add_css_class(adv_header, "title-4");
+    gtk_widget_set_margin_top(adv_header, 6);
+    gtk_widget_set_margin_bottom(adv_header, 6);
+    gtk_box_append(GTK_BOX(blouedit_app->advanced_video_tools), adv_header);
+    
+    // 고급 비디오 버튼 컨테이너
+    GtkWidget *adv_buttons = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_margin_start(adv_buttons, 12);
+    gtk_widget_set_margin_end(adv_buttons, 12);
+    
+    // 고급 비디오 기능 버튼 생성
+    const char *adv_functions[] = {
+        "플래너 트래킹", "멀티 카메라 편집", "이미지 시퀀스 → 영상 변환",
+        "고급 영상 압축기", "키프레임 경로 곡선", "색상 보정 및 LUTs",
+        "속도 램핑", "모션 트래킹", "그린 스크린(크로마 키)",
+        "자동 리프레임", "조정 레이어", "빠른 분할 모드",
+        "키보드 단축키 프리셋"
+    };
+    
+    for (int i = 0; i < 13; i++) {
+        GtkWidget *button = gtk_button_new_with_label(adv_functions[i]);
+        gtk_box_append(GTK_BOX(adv_buttons), button);
+    }
+    
+    gtk_box_append(GTK_BOX(blouedit_app->advanced_video_tools), adv_buttons);
+    
+    // 오디오 도구 생성
+    blouedit_app->audio_tools = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    GtkWidget *audio_header = gtk_label_new("오디오 편집");
+    gtk_widget_add_css_class(audio_header, "title-4");
+    gtk_widget_set_margin_top(audio_header, 6);
+    gtk_widget_set_margin_bottom(audio_header, 6);
+    gtk_box_append(GTK_BOX(blouedit_app->audio_tools), audio_header);
+    
+    // 오디오 버튼 컨테이너
+    GtkWidget *audio_buttons = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_margin_start(audio_buttons, 12);
+    gtk_widget_set_margin_end(audio_buttons, 12);
+    
+    // 오디오 기능 버튼 생성
+    const char *audio_functions[] = {
+        "AI 음성 클로닝", "음성 변조기", "자동 비트 동기화",
+        "오디오 시각화", "자동 동기화", "AI 오디오 스트레치",
+        "AI 오디오 노이즈 제거"
+    };
+    
+    for (int i = 0; i < 7; i++) {
+        GtkWidget *button = gtk_button_new_with_label(audio_functions[i]);
+        gtk_box_append(GTK_BOX(audio_buttons), button);
+    }
+    
+    gtk_box_append(GTK_BOX(blouedit_app->audio_tools), audio_buttons);
+    
+    // 스택에 모든 도구 추가
     gtk_stack_add_titled(GTK_STACK(blouedit_app->media_stack), blouedit_app->media_library, "media", "미디어");
+    gtk_stack_add_titled(GTK_STACK(blouedit_app->media_stack), blouedit_app->ai_tools, "ai", "AI");
+    gtk_stack_add_titled(GTK_STACK(blouedit_app->media_stack), blouedit_app->advanced_video_tools, "advanced", "고급 편집");
+    gtk_stack_add_titled(GTK_STACK(blouedit_app->media_stack), blouedit_app->audio_tools, "audio", "오디오");
     
     // 스택 스위처 생성
     GtkWidget *stack_switcher = gtk_stack_switcher_new();
