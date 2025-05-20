@@ -14,6 +14,13 @@ finish-args:
   - --filesystem=~/.fonts:ro
   - --filesystem=~/.local/share/fonts:ro
   - --filesystem=/var/cache/fontconfig:ro
+  - --filesystem=xdg-run/gvfsd
+  - --filesystem=xdg-run/at-spi/bus
+  - --talk-name=org.a11y.Bus
+  - --env=GST_PLUGIN_SYSTEM_PATH=/app/lib/gstreamer-1.0:/usr/lib/gstreamer-1.0
+  - --env=GTK_PATH=/app/lib/gtk-4.0
+  - --env=FONTCONFIG_FILE=/app/etc/fonts/fonts.conf
+  - --env=FONTCONFIG_PATH=/app/etc/fonts
   - --socket=session-bus
   - --share=network
   - --own-name=com.blouedit.BLOUedit
@@ -21,26 +28,63 @@ finish-args:
   - --talk-name=org.freedesktop.portal.*
     
 modules:
+  - name: fonts
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/share/fonts
+      - cp *.otf /app/share/fonts/
+      - fc-cache -fv /app/share/fonts/
+    sources:
+      - type: file
+        url: https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@v20201206-cjk/NotoSansCJKkr-Regular.otf
+        sha256: b81c8a7c17ee5ada773a7936b4cdad04247ffe811118630302b3f4deb69940f8
+      - type: file
+        url: https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@v20201206-cjk/NotoSansCJKkr-Bold.otf
+        sha256: 20767371ce27007f216b155c9463b16e585096db9448b7899d63f115ff2f108c
+
   - name: blouedit
     buildsystem: simple
     build-commands:
       - chmod 644 blouedit.c
       - cc -o blouedit blouedit.c `pkg-config --cflags --libs gtk4 gstreamer-1.0 gstreamer-video-1.0 gstreamer-pbutils-1.0`
       - chmod 755 blouedit
-      - install -D blouedit /app/bin/blouedit
+      - install -D -m 0755 blouedit /app/bin/blouedit
       - mkdir -p /app/lib/dri
       - mkdir -p /app/share/runtime/locale
       - mkdir -p /app/etc/fonts
       - echo '<?xml version="1.0"?>' > /app/etc/fonts/fonts.conf
       - echo '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">' >> /app/etc/fonts/fonts.conf
       - echo '<fontconfig>' >> /app/etc/fonts/fonts.conf
-      - echo '  <dir>/run/host/fonts</dir>' >> /app/etc/fonts/fonts.conf
-      - echo '  <dir>/run/host/user-fonts</dir>' >> /app/etc/fonts/fonts.conf
+      - echo '  <dir>/app/share/fonts</dir>' >> /app/etc/fonts/fonts.conf
+      - echo '  <dir>/usr/share/fonts</dir>' >> /app/etc/fonts/fonts.conf
       - echo '  <dir prefix="xdg">fonts</dir>' >> /app/etc/fonts/fonts.conf
       - echo '  <dir>~/.fonts</dir>' >> /app/etc/fonts/fonts.conf
       - echo '  <dir>~/.local/share/fonts</dir>' >> /app/etc/fonts/fonts.conf
-      - echo '  <include ignore_missing="yes">/etc/fonts/conf.d</include>' >> /app/etc/fonts/fonts.conf
-      - echo '  <include ignore_missing="yes">/run/host/fonts-cache</include>' >> /app/etc/fonts/fonts.conf
+      - echo '  <cachedir>/var/cache/fontconfig</cachedir>' >> /app/etc/fonts/fonts.conf
+      - echo '  <match target="pattern">' >> /app/etc/fonts/fonts.conf
+      - echo '    <test qual="any" name="family">' >> /app/etc/fonts/fonts.conf
+      - echo '      <string>sans-serif</string>' >> /app/etc/fonts/fonts.conf
+      - echo '    </test>' >> /app/etc/fonts/fonts.conf
+      - echo '    <edit name="family" mode="prepend" binding="strong">' >> /app/etc/fonts/fonts.conf
+      - echo '      <string>Noto Sans CJK KR</string>' >> /app/etc/fonts/fonts.conf
+      - echo '    </edit>' >> /app/etc/fonts/fonts.conf
+      - echo '  </match>' >> /app/etc/fonts/fonts.conf
+      - echo '  <match target="pattern">' >> /app/etc/fonts/fonts.conf
+      - echo '    <test qual="any" name="family">' >> /app/etc/fonts/fonts.conf
+      - echo '      <string>serif</string>' >> /app/etc/fonts/fonts.conf
+      - echo '    </test>' >> /app/etc/fonts/fonts.conf
+      - echo '    <edit name="family" mode="prepend" binding="strong">' >> /app/etc/fonts/fonts.conf
+      - echo '      <string>Noto Sans CJK KR</string>' >> /app/etc/fonts/fonts.conf
+      - echo '    </edit>' >> /app/etc/fonts/fonts.conf
+      - echo '  </match>' >> /app/etc/fonts/fonts.conf
+      - echo '  <match target="pattern">' >> /app/etc/fonts/fonts.conf
+      - echo '    <test qual="any" name="family">' >> /app/etc/fonts/fonts.conf
+      - echo '      <string>monospace</string>' >> /app/etc/fonts/fonts.conf
+      - echo '    </test>' >> /app/etc/fonts/fonts.conf
+      - echo '    <edit name="family" mode="prepend" binding="strong">' >> /app/etc/fonts/fonts.conf
+      - echo '      <string>Noto Sans CJK KR</string>' >> /app/etc/fonts/fonts.conf
+      - echo '    </edit>' >> /app/etc/fonts/fonts.conf
+      - echo '  </match>' >> /app/etc/fonts/fonts.conf
       - echo '</fontconfig>' >> /app/etc/fonts/fonts.conf
       - mkdir -p /app/share/applications
       - echo '[Desktop Entry]' > /app/share/applications/com.blouedit.BLOUedit.desktop
@@ -49,6 +93,21 @@ modules:
       - echo 'Icon=com.blouedit.BLOUedit' >> /app/share/applications/com.blouedit.BLOUedit.desktop
       - echo 'Type=Application' >> /app/share/applications/com.blouedit.BLOUedit.desktop
       - echo 'Categories=AudioVideo;Video;Graphics;' >> /app/share/applications/com.blouedit.BLOUedit.desktop
+      - chmod +x generate-icon.sh
+      - ./generate-icon.sh
     sources:
       - type: file
-        path: blouedit.c 
+        path: blouedit.c
+      - type: script
+        dest-filename: generate-icon.sh
+        commands:
+          - echo 'Creating app icon'
+          - mkdir -p /app/share/icons/hicolor/scalable/apps
+          - echo '<?xml version="1.0" encoding="UTF-8"?>' > /app/share/icons/hicolor/scalable/apps/com.blouedit.BLOUedit.svg
+          - echo '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">' >> /app/share/icons/hicolor/scalable/apps/com.blouedit.BLOUedit.svg
+          - echo '  <rect width="64" height="64" rx="8" fill="#3584e4"/>' >> /app/share/icons/hicolor/scalable/apps/com.blouedit.BLOUedit.svg
+          - echo '  <path d="M16 16h32v32H16z" fill="#ffffff"/>' >> /app/share/icons/hicolor/scalable/apps/com.blouedit.BLOUedit.svg
+          - echo '  <rect x="20" y="20" width="24" height="4" fill="#e01b24"/>' >> /app/share/icons/hicolor/scalable/apps/com.blouedit.BLOUedit.svg
+          - echo '  <rect x="20" y="28" width="24" height="4" fill="#26a269"/>' >> /app/share/icons/hicolor/scalable/apps/com.blouedit.BLOUedit.svg
+          - echo '  <rect x="20" y="36" width="24" height="4" fill="#1c71d8"/>' >> /app/share/icons/hicolor/scalable/apps/com.blouedit.BLOUedit.svg
+          - echo '</svg>' >> /app/share/icons/hicolor/scalable/apps/com.blouedit.BLOUedit.svg 
