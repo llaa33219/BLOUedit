@@ -10,6 +10,16 @@ finish-args:
   - --device=dri
   - --socket=pulseaudio
   - --filesystem=host:ro
+  - --filesystem=xdg-data/fonts:ro
+  - --filesystem=~/.fonts:ro
+  - --filesystem=~/.local/share/fonts:ro
+  - --filesystem=/var/cache/fontconfig:ro
+  - --socket=session-bus
+  - --share=network
+  - --own-name=com.blouedit.BLOUedit
+  - --talk-name=org.gtk.vfs.*
+  - --talk-name=org.freedesktop.portal.*
+    
 modules:
   - name: blouedit
     buildsystem: simple
@@ -18,6 +28,27 @@ modules:
       - cc -o blouedit blouedit.c `pkg-config --cflags --libs gtk4 gstreamer-1.0 gstreamer-video-1.0 gstreamer-pbutils-1.0`
       - chmod 755 blouedit
       - install -D blouedit /app/bin/blouedit
+      - mkdir -p /app/lib/dri
+      - mkdir -p /app/share/runtime/locale
+      - mkdir -p /app/etc/fonts
+      - echo '<?xml version="1.0"?>' > /app/etc/fonts/fonts.conf
+      - echo '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">' >> /app/etc/fonts/fonts.conf
+      - echo '<fontconfig>' >> /app/etc/fonts/fonts.conf
+      - echo '  <dir>/run/host/fonts</dir>' >> /app/etc/fonts/fonts.conf
+      - echo '  <dir>/run/host/user-fonts</dir>' >> /app/etc/fonts/fonts.conf
+      - echo '  <dir prefix="xdg">fonts</dir>' >> /app/etc/fonts/fonts.conf
+      - echo '  <dir>~/.fonts</dir>' >> /app/etc/fonts/fonts.conf
+      - echo '  <dir>~/.local/share/fonts</dir>' >> /app/etc/fonts/fonts.conf
+      - echo '  <include ignore_missing="yes">/etc/fonts/conf.d</include>' >> /app/etc/fonts/fonts.conf
+      - echo '  <include ignore_missing="yes">/run/host/fonts-cache</include>' >> /app/etc/fonts/fonts.conf
+      - echo '</fontconfig>' >> /app/etc/fonts/fonts.conf
+      - mkdir -p /app/share/applications
+      - echo '[Desktop Entry]' > /app/share/applications/com.blouedit.BLOUedit.desktop
+      - echo 'Name=BLOUedit' >> /app/share/applications/com.blouedit.BLOUedit.desktop
+      - echo 'Exec=blouedit' >> /app/share/applications/com.blouedit.BLOUedit.desktop
+      - echo 'Icon=com.blouedit.BLOUedit' >> /app/share/applications/com.blouedit.BLOUedit.desktop
+      - echo 'Type=Application' >> /app/share/applications/com.blouedit.BLOUedit.desktop
+      - echo 'Categories=AudioVideo;Video;Graphics;' >> /app/share/applications/com.blouedit.BLOUedit.desktop
     sources:
       - type: file
         path: blouedit.c 

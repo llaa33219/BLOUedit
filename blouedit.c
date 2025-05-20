@@ -2,6 +2,7 @@
 #include <gst/gst.h>
 #include <gst/video/videooverlay.h>
 #include <gst/pbutils/pbutils.h>
+#include <locale.h>
 
 // 타임라인 클립 구조체
 typedef struct {
@@ -50,9 +51,11 @@ typedef struct {
     
     // 타임라인 컴포넌트
     GtkWidget *timeline;
-    GtkWidget *timeline_tracks[3]; // 비디오, 오디오, 효과 트랙
+    GtkWidget **timeline_tracks; // 동적 트랙 배열
+    int track_count;          // 트랙 수
     GtkAdjustment *timeline_adj;
     GtkWidget *timeline_scale;
+    GtkWidget *add_track_button; // 트랙 추가 버튼
     
     // 미리보기 컴포넌트
     GtkWidget *preview;
@@ -121,6 +124,8 @@ static TimelineClip* create_timeline_clip(BlouEditApp *app, const char *filename
 static void delete_selected_clip(BlouEditApp *app);
 static void create_export_pipeline(BlouEditApp *app, const char *output_file);
 static void on_pad_added(GstElement *element, GstPad *pad, gpointer data);
+static void add_timeline_track(BlouEditApp *app);
+static void on_add_track_clicked(GtkButton *button, gpointer user_data);
 
 // 클립 생성자 함수
 static TimelineClip* create_timeline_clip(BlouEditApp *app, const char *filename, int track) {
@@ -172,8 +177,18 @@ static TimelineClip* create_timeline_clip(BlouEditApp *app, const char *filename
 
 // 클립 선택 핸들러
 static void on_clip_clicked(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data) {
+    if (!user_data) {
+        g_print("Error: Null clip data in on_clip_clicked\n");
+        return;
+    }
+
     TimelineClip *clip = (TimelineClip *)user_data;
     BlouEditApp *app = global_app; // 전역 앱 인스턴스 사용
+    
+    if (!app) {
+        g_print("Error: Global app instance is null\n");
+        return;
+    }
     
     // 기존 선택 해제
     deselect_all_clips(app);
@@ -189,11 +204,21 @@ static void on_clip_clicked(GtkGestureClick *gesture, int n_press, double x, dou
 
 // 클립 드래그 시작 핸들러
 static void on_clip_drag_begin(GtkGestureDrag *gesture, double start_x, double start_y, gpointer user_data) {
+    if (!user_data) {
+        g_print("Error: Null clip data in on_clip_drag_begin\n");
+        return;
+    }
+
     TimelineClip *clip = (TimelineClip *)user_data;
+    BlouEditApp *app = global_app;
+
+    if (!app) {
+        g_print("Error: Global app instance is null\n");
+        return;
+    }
     
     // 선택되지 않았다면 먼저 선택
     if (!clip->selected) {
-        BlouEditApp *app = global_app;
         deselect_all_clips(app);
         select_clip(app, clip);
     }
@@ -203,8 +228,18 @@ static void on_clip_drag_begin(GtkGestureDrag *gesture, double start_x, double s
 
 // 클립 드래그 업데이트 핸들러
 static void on_clip_drag_update(GtkGestureDrag *gesture, double offset_x, double offset_y, gpointer user_data) {
+    if (!user_data) {
+        g_print("Error: Null clip data in on_clip_drag_update\n");
+        return;
+    }
+
     TimelineClip *clip = (TimelineClip *)user_data;
     BlouEditApp *app = global_app;
+
+    if (!app) {
+        g_print("Error: Global app instance is null\n");
+        return;
+    }
     
     // 마진 값 계산 (타임라인에서의 위치)
     int new_margin = MAX(0, clip->start_position / 50 + (int)offset_x);
@@ -217,8 +252,18 @@ static void on_clip_drag_update(GtkGestureDrag *gesture, double offset_x, double
 
 // 클립 드래그 종료 핸들러
 static void on_clip_drag_end(GtkGestureDrag *gesture, double offset_x, double offset_y, gpointer user_data) {
+    if (!user_data) {
+        g_print("Error: Null clip data in on_clip_drag_end\n");
+        return;
+    }
+
     TimelineClip *clip = (TimelineClip *)user_data;
     BlouEditApp *app = global_app;
+
+    if (!app) {
+        g_print("Error: Global app instance is null\n");
+        return;
+    }
     
     // 새 위치 계산 및 저장
     int new_position = MAX(0, clip->start_position + (int)(offset_x * 50));
@@ -229,6 +274,11 @@ static void on_clip_drag_end(GtkGestureDrag *gesture, double offset_x, double of
 
 // 모든 클립 선택 해제
 static void deselect_all_clips(BlouEditApp *app) {
+    if (!app) {
+        g_print("Error: Null app in deselect_all_clips\n");
+        return;
+    }
+    
     if (app->selected_clip) {
         app->selected_clip->selected = FALSE;
         
@@ -236,11 +286,24 @@ static void deselect_all_clips(BlouEditApp *app) {
         const char *track_colors[] = {
             "button { background: #3498db; color: white; }",
             "button { background: #e74c3c; color: white; }",
-            "button { background: #2ecc71; color: white; }"
+            "button { background: #2ecc71; color: white; }",
+            "button { background: #f1c40f; color: white; }",
+            "button { background: #9b59b6; color: white; }"
         };
         
+        if (!app->selected_clip->widget) {
+            g_print("Warning: Selected clip has no widget\n");
+            app->selected_clip = NULL;
+            return;
+        }
+        
+        int track_index = app->selected_clip->track_index;
+        if (track_index < 0) {
+            track_index = 0;
+        }
+        
         GtkCssProvider *provider = gtk_css_provider_new();
-        gtk_css_provider_load_from_data(provider, track_colors[app->selected_clip->track_index % 3], -1);
+        gtk_css_provider_load_from_data(provider, track_colors[track_index % 5], -1);
         gtk_style_context_add_provider(
             gtk_widget_get_style_context(app->selected_clip->widget),
             GTK_STYLE_PROVIDER(provider),
@@ -254,6 +317,21 @@ static void deselect_all_clips(BlouEditApp *app) {
 
 // 클립 선택
 static void select_clip(BlouEditApp *app, TimelineClip *clip) {
+    if (!app) {
+        g_print("Error: Null app in select_clip\n");
+        return;
+    }
+    
+    if (!clip) {
+        g_print("Error: Null clip in select_clip\n");
+        return;
+    }
+    
+    if (!clip->widget) {
+        g_print("Error: Clip has no widget in select_clip\n");
+        return;
+    }
+    
     app->selected_clip = clip;
     clip->selected = TRUE;
     
@@ -273,7 +351,13 @@ static void select_clip(BlouEditApp *app, TimelineClip *clip) {
 
 // 미리보기 업데이트
 static void update_preview(BlouEditApp *app, TimelineClip *clip) {
+    if (!app) {
+        g_print("Error: Null app in update_preview\n");
+        return;
+    }
+    
     if (!clip || !clip->filename) {
+        g_print("Warning: Invalid clip or filename in update_preview\n");
         return;
     }
     
@@ -439,66 +523,98 @@ static void on_export_dialog_response(GtkDialog *dialog, int response, gpointer 
 }
 
 static void add_media_file(BlouEditApp *app, const char *filename) {
-    GtkTreeIter iter;
-    const char *basename = g_path_get_basename(filename);
-    
-    // 미디어 라이브러리에 추가
-    gtk_list_store_append(app->media_store, &iter);
-    gtk_list_store_set(app->media_store, &iter, 
-                      0, basename, 
-                      1, filename, -1);
-    
-    // 파일 목록에 추가
-    if (app->file_count < 50) {
-        app->loaded_files[app->file_count++] = g_strdup(filename);
+    if (!app || !filename) {
+        g_print("Error: Invalid arguments to add_media_file\n");
+        return;
     }
     
-    g_free((gpointer)basename);
+    // 미디어 파일 추가
+    app->loaded_files[app->file_count] = g_strdup(filename);
+    app->file_count++;
     
-    g_print("미디어 추가됨: %s\n", filename);
+    // 미디어 라이브러리에 추가
+    GtkTreeIter iter;
+    gtk_list_store_append(app->media_store, &iter);
+    gtk_list_store_set(app->media_store, &iter, 0, g_path_get_basename(filename), 1, filename, -1);
+    
+    // 타임라인 클립 생성
+    int track = 0;
+    if (app->track_count > 0) {
+        // 클립을 생성할 트랙을 선택 (순환식으로)
+        track = app->clip_count % app->track_count;
+    } else {
+        g_print("Warning: No tracks available, cannot add clip\n");
+        return;
+    }
+    
+    // 타임라인 클립 생성
+    TimelineClip *clip = create_timeline_clip(app, filename, track);
+    
+    // 겹치지 않게 위치 설정
+    int position = 0;
+    for (int i = 0; i < app->clip_count; i++) {
+        TimelineClip *other = app->clips[i];
+        if (other->track_index == track) {
+            position = MAX(position, other->start_position + other->duration);
+        }
+    }
+    clip->start_position = position;
+    
+    // UI 반영
+    gtk_widget_set_margin_start(clip->widget, position / 50);
+    
+    // 타임라인에 추가
+    app->clips[app->clip_count++] = clip;
+    
+    // UI에 추가
+    if (track < app->track_count) {
+        gtk_box_append(GTK_BOX(app->timeline_tracks[track]), clip->widget);
+    } else {
+        g_print("Error: Invalid track index %d (max: %d)\n", track, app->track_count - 1);
+    }
 }
 
+// 미디어 아이템 더블클릭 핸들러
 static void media_item_activated(GtkTreeView *tree_view, GtkTreePath *path, 
                                 GtkTreeViewColumn *column, gpointer user_data) {
-    BlouEditApp *app = (BlouEditApp*)user_data;
+    BlouEditApp *app = (BlouEditApp *)user_data;
+    
     GtkTreeIter iter;
+    gchar *filename;
     GtkTreeModel *model = gtk_tree_view_get_model(tree_view);
     
     if (gtk_tree_model_get_iter(model, &iter, path)) {
-        gchar *filename;
         gtk_tree_model_get(model, &iter, 1, &filename, -1);
         
-        // 새 클립 생성
-        TimelineClip *clip = create_timeline_clip(app, filename, app->clip_count % 3);
+        // Check if we have any tracks
+        if (app->track_count <= 0) {
+            g_print("Error: Cannot add clip - no tracks available\n");
+            g_free(filename);
+            return;
+        }
         
-        // 타임라인에 추가
-        int track = clip->track_index;
+        // 클립 생성하고 타임라인에 추가
+        int track = app->clip_count % app->track_count; // 트랙 순환식으로 추가
+        TimelineClip *clip = create_timeline_clip(app, filename, track);
         
-        // 현재 트랙의 끝에 배치
-        int track_end = 0;
+        // 겹치지 않게 위치 설정
+        int position = 0;
         for (int i = 0; i < app->clip_count; i++) {
             TimelineClip *other = app->clips[i];
             if (other->track_index == track) {
-                int other_end = other->start_position + other->duration;
-                if (other_end > track_end) {
-                    track_end = other_end;
-                }
+                position = MAX(position, other->start_position + other->duration);
             }
         }
+        clip->start_position = position;
         
-        clip->start_position = track_end;
-        gtk_widget_set_margin_start(clip->widget, track_end / 50);
-        
-        // 트랙에 추가
-        gtk_box_append(GTK_BOX(app->timeline_tracks[track]), clip->widget);
+        // UI 반영
+        gtk_widget_set_margin_start(clip->widget, position / 50);
         
         // 클립 배열에 추가
         app->clips[app->clip_count++] = clip;
         
-        // 선택 및 미리보기
-        deselect_all_clips(app);
-        select_clip(app, clip);
-        update_preview(app, clip);
+        // UI에 추가
+        gtk_box_append(GTK_BOX(app->timeline_tracks[track]), clip->widget);
         
         g_free(filename);
     }
@@ -681,21 +797,32 @@ static void on_dialog_response(GtkDialog *dialog, int response, gpointer user_da
 
 // 새 프로젝트 버튼
 static void on_new_project_clicked(GtkButton *button, gpointer user_data) {
-    BlouEditApp *app = (BlouEditApp*)user_data;
+    BlouEditApp *app = (BlouEditApp *)user_data;
     
-    // 기존 클립 정리
+    // 기존 클립 제거
     for (int i = 0; i < app->clip_count; i++) {
-        TimelineClip *clip = app->clips[i];
-        gtk_widget_unparent(clip->widget);
-        g_free(clip->filename);
-        g_free(clip->display_name);
-        g_free(clip);
+        if (app->clips[i]) {
+            TimelineClip *clip = app->clips[i];
+            
+            // 위젯 제거
+            if (clip->widget) {
+                gtk_widget_unparent(clip->widget);
+            }
+            
+            // 메모리 해제
+            g_free(clip->filename);
+            g_free(clip->display_name);
+            g_free(clip);
+            app->clips[i] = NULL;
+        }
     }
     app->clip_count = 0;
     app->selected_clip = NULL;
     
-    // 미디어 라이브러리 정리
+    // 미디어 파일 목록 비우기
     gtk_list_store_clear(app->media_store);
+    
+    // 로드된 파일 정리
     for (int i = 0; i < app->file_count; i++) {
         g_free(app->loaded_files[i]);
     }
@@ -720,9 +847,106 @@ static void on_new_project_clicked(GtkButton *button, gpointer user_data) {
     g_signal_connect(dialog, "response", G_CALLBACK(on_dialog_response), NULL);
 }
 
+// 타임라인 트랙 추가 함수
+static void add_timeline_track(BlouEditApp *app) {
+    if (!app) {
+        g_print("Error: App instance is null in add_timeline_track\n");
+        return;
+    }
+
+    // 트랙 개수 증가
+    int new_track_index = app->track_count;
+    app->track_count++;
+    
+    // 트랙 배열 크기 조정
+    app->timeline_tracks = g_realloc(app->timeline_tracks, sizeof(GtkWidget*) * app->track_count);
+    if (!app->timeline_tracks) {
+        g_print("Error: Failed to allocate memory for timeline tracks\n");
+        app->track_count--;
+        return;
+    }
+    
+    // 타임라인 트랙 컨테이너 가져오기
+    GtkWidget *tracks_box = gtk_widget_get_parent(app->add_track_button);
+    if (!tracks_box) {
+        g_print("Error: Could not find tracks container\n");
+        app->track_count--;
+        return;
+    }
+    
+    // 새 트랙 생성
+    GtkWidget *track_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    
+    // 트랙 이름 생성
+    char track_name[50];
+    g_snprintf(track_name, sizeof(track_name), "트랙 %d", new_track_index + 1);
+    
+    GtkWidget *track_label = gtk_label_new(track_name);
+    gtk_widget_set_size_request(track_label, 100, -1);
+    gtk_widget_set_halign(track_label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(track_row), track_label);
+    
+    // 트랙 생성
+    app->timeline_tracks[new_track_index] = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 3);
+    gtk_widget_set_hexpand(app->timeline_tracks[new_track_index], TRUE);
+    
+    // 각 트랙별 고유 클래스 이름 생성
+    char class_name[20];
+    g_snprintf(class_name, sizeof(class_name), "track-%d", new_track_index);
+    gtk_widget_add_css_class(app->timeline_tracks[new_track_index], class_name);
+    
+    // 스타일 설정 - 색상을 인덱스에 따라 순환
+    const char *track_colors[] = {
+        "background-color: rgba(52, 152, 219, 0.2);", // 파란색
+        "background-color: rgba(231, 76, 60, 0.2);",  // 빨간색
+        "background-color: rgba(46, 204, 113, 0.2);", // 녹색
+        "background-color: rgba(241, 196, 15, 0.2);", // 노란색
+        "background-color: rgba(155, 89, 182, 0.2);"  // 보라색
+    };
+    
+    GtkCssProvider *track_provider = gtk_css_provider_new();
+    char css[100];
+    g_snprintf(css, sizeof(css), ".track-%d { %s border-radius: 3px; min-height: 40px; }", 
+              new_track_index, track_colors[new_track_index % 5]);
+    gtk_css_provider_load_from_data(track_provider, css, -1);
+    gtk_style_context_add_provider_for_display(
+        gtk_widget_get_display(app->timeline_tracks[new_track_index]),
+        GTK_STYLE_PROVIDER(track_provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+    );
+    g_object_unref(track_provider);
+    
+    gtk_box_append(GTK_BOX(track_row), app->timeline_tracks[new_track_index]);
+    
+    // 트랙 row를 트랙 컨테이너에 추가 (add_track_button 바로 앞에)
+    gtk_box_remove(GTK_BOX(tracks_box), app->add_track_button);
+    gtk_box_append(GTK_BOX(tracks_box), track_row);
+    gtk_box_append(GTK_BOX(tracks_box), app->add_track_button);
+    
+    g_print("트랙 %d 추가됨\n", new_track_index + 1);
+}
+
+// 트랙 추가 버튼 클릭 핸들러
+static void on_add_track_clicked(GtkButton *button, gpointer user_data) {
+    BlouEditApp *app = (BlouEditApp *)user_data;
+    if (!app) {
+        g_print("Error: App instance is null in on_add_track_clicked\n");
+        return;
+    }
+    
+    add_timeline_track(app);
+}
+
 // 애플리케이션 활성화 함수
 static void activate(GtkApplication *app, gpointer user_data) {
+    g_print("Activating application...\n");
+    
     BlouEditApp *blouedit_app = g_new0(BlouEditApp, 1);
+    if (!blouedit_app) {
+        g_printerr("Failed to allocate application structure\n");
+        return;
+    }
+    
     global_app = blouedit_app;  // 전역 앱 인스턴스 설정
     
     // 초기화
@@ -734,11 +958,26 @@ static void activate(GtkApplication *app, gpointer user_data) {
     blouedit_app->project_name = g_strdup("새 프로젝트");
     blouedit_app->project_duration = 0;
     blouedit_app->timeline_scale_value = 1;
+    blouedit_app->track_count = 0;
+    blouedit_app->timeline_tracks = NULL; // 동적 할당 배열
     
     // 메인 윈도우
     blouedit_app->main_window = gtk_application_window_new(app);
+    if (!blouedit_app->main_window) {
+        g_printerr("Failed to create main window\n");
+        g_free(blouedit_app);
+        return;
+    }
+    
     gtk_window_set_title(GTK_WINDOW(blouedit_app->main_window), "BLOUedit");
     gtk_window_set_default_size(GTK_WINDOW(blouedit_app->main_window), 1280, 720);
+    
+    // GStreamer 초기화
+    GError *error = NULL;
+    if (!gst_init_check(NULL, NULL, &error)) {
+        g_printerr("Failed to initialize GStreamer: %s\n", error ? error->message : "unknown error");
+        if (error) g_error_free(error);
+    }
     
     // 메인 레이아웃
     GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -953,22 +1192,31 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_set_margin_bottom(timeline_label, 6);
     gtk_box_append(GTK_BOX(blouedit_app->timeline), timeline_label);
     
-    // 타임라인 트랙
+    // 타임라인 트랙 컨테이너
     GtkWidget *tracks_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
     gtk_widget_set_margin_start(tracks_box, 6);
     gtk_widget_set_margin_end(tracks_box, 6);
     
-    const char *track_names[] = {"비디오 트랙", "오디오 트랙", "효과 트랙"};
+    // 트랙 기본 정의
+    const int DEFAULT_TRACKS = 3;
+    const char *default_track_names[] = {"비디오 트랙", "오디오 트랙", "효과 트랙"};
     const char *track_colors[] = {
         "background-color: rgba(52, 152, 219, 0.2);",
         "background-color: rgba(231, 76, 60, 0.2);",
-        "background-color: rgba(46, 204, 113, 0.2);"
+        "background-color: rgba(46, 204, 113, 0.2);",
+        "background-color: rgba(241, 196, 15, 0.2);",
+        "background-color: rgba(155, 89, 182, 0.2);"
     };
     
-    for (int i = 0; i < 3; i++) {
+    // 동적 트랙 배열 초기화
+    blouedit_app->track_count = DEFAULT_TRACKS;
+    blouedit_app->timeline_tracks = g_new0(GtkWidget*, blouedit_app->track_count);
+    
+    // 기본 트랙 생성
+    for (int i = 0; i < blouedit_app->track_count; i++) {
         GtkWidget *track_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
         
-        GtkWidget *track_label = gtk_label_new(track_names[i]);
+        GtkWidget *track_label = gtk_label_new(default_track_names[i]);
         gtk_widget_set_size_request(track_label, 100, -1);
         gtk_widget_set_halign(track_label, GTK_ALIGN_START);
         gtk_box_append(GTK_BOX(track_row), track_label);
@@ -984,7 +1232,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
         GtkCssProvider *track_provider = gtk_css_provider_new();
         char css[100];
         g_snprintf(css, sizeof(css), ".track-%d { %s border-radius: 3px; min-height: 40px; }", 
-                  i, track_colors[i]);
+                  i, track_colors[i % 5]);
         gtk_css_provider_load_from_data(track_provider, css, -1);
         gtk_style_context_add_provider_for_display(
             gtk_widget_get_display(blouedit_app->timeline_tracks[i]),
@@ -996,6 +1244,13 @@ static void activate(GtkApplication *app, gpointer user_data) {
         gtk_box_append(GTK_BOX(track_row), blouedit_app->timeline_tracks[i]);
         gtk_box_append(GTK_BOX(tracks_box), track_row);
     }
+    
+    // 트랙 추가 버튼
+    blouedit_app->add_track_button = gtk_button_new_with_label("트랙 추가");
+    gtk_widget_set_margin_top(blouedit_app->add_track_button, 6);
+    g_signal_connect(blouedit_app->add_track_button, "clicked", 
+                     G_CALLBACK(on_add_track_clicked), blouedit_app);
+    gtk_box_append(GTK_BOX(tracks_box), blouedit_app->add_track_button);
     
     gtk_box_append(GTK_BOX(blouedit_app->timeline), tracks_box);
     
@@ -1030,9 +1285,6 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // 윈도우에 메인 콘텐츠 설정
     gtk_window_set_child(GTK_WINDOW(blouedit_app->main_window), main_box);
     
-    // GStreamer 초기화
-    gst_init(NULL, NULL);
-    
     // 윈도우 표시
     gtk_window_present(GTK_WINDOW(blouedit_app->main_window));
     
@@ -1052,9 +1304,64 @@ static void activate(GtkApplication *app, gpointer user_data) {
 }
 
 int main(int argc, char *argv[]) {
-    GtkApplication *app = gtk_application_new("com.blouedit.BLOUedit", G_APPLICATION_DEFAULT_FLAGS);
+    // GTK 초기화 전에 로케일 설정 추가
+    setlocale(LC_ALL, "C.UTF-8");
+    
+    // 디버그 정보 출력
+    g_print("Current locale: %s\n", setlocale(LC_ALL, NULL));
+    
+    // Set program name explicitly for better D-Bus registration
+    g_set_prgname("com.blouedit.BLOUedit");
+    
+    // Use NON_UNIQUE flag to avoid D-Bus ownership conflicts 
+    GtkApplication *app = gtk_application_new("com.blouedit.BLOUedit", 
+                                              G_APPLICATION_NON_UNIQUE);
+    
+    if (app == NULL) {
+        g_printerr("Failed to create application\n");
+        return 1;
+    }
+    
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
+    
+    // Add error handling for application run
+    GError *error = NULL;
     int status = g_application_run(G_APPLICATION(app), argc, argv);
+    
+    if (error != NULL) {
+        g_printerr("Application error: %s\n", error->message);
+        g_error_free(error);
+    }
+    
+    // 전역 앱 인스턴스 정리
+    if (global_app) {
+        // 클립 메모리 정리
+        for (int i = 0; i < global_app->clip_count; i++) {
+            if (global_app->clips[i]) {
+                g_free(global_app->clips[i]->filename);
+                g_free(global_app->clips[i]->display_name);
+                g_free(global_app->clips[i]);
+            }
+        }
+        
+        // 타임라인 트랙 배열 정리
+        if (global_app->timeline_tracks) {
+            g_free(global_app->timeline_tracks);
+        }
+        
+        // 로드된 파일 정리
+        for (int i = 0; i < global_app->file_count; i++) {
+            g_free(global_app->loaded_files[i]);
+        }
+        
+        // 프로젝트 이름 정리
+        g_free(global_app->project_name);
+        
+        // 앱 인스턴스 정리
+        g_free(global_app);
+        global_app = NULL;
+    }
+    
     g_object_unref(app);
     return status;
 } 

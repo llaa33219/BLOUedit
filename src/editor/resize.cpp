@@ -5,6 +5,10 @@
 #include <future>
 #include <cmath>
 #include <algorithm>
+#include <fstream>  // For std::ofstream
+
+// GTK4 specific includes
+#include <gtk/gtk.h>
 
 // Constructor
 VideoResize::VideoResize() :
@@ -83,6 +87,7 @@ bool VideoResize::resize_video(const std::string& input_video_path,
     
     // Show progress bar activity
     gtk_widget_set_visible(progress_bar_, TRUE);
+    gtk_progress_bar_set_pulse_step(GTK_PROGRESS_BAR(progress_bar_), 0.1);
     gtk_progress_bar_pulse(GTK_PROGRESS_BAR(progress_bar_));
     
     // Run resizing in a separate thread to avoid UI freezing
@@ -169,8 +174,12 @@ bool VideoResize::resize_video(const std::string& input_video_path,
                     GTK_BUTTONS_OK,
                     "Video resize complete. Output saved to:\n%s",
                     output_video_path.c_str());
-                gtk_dialog_run(GTK_DIALOG(dialog));
-                gtk_widget_destroy(dialog);
+                    
+                g_signal_connect(dialog, "response", G_CALLBACK([](GtkDialog *dialog, gint response_id, gpointer user_data) {
+                    gtk_window_destroy(GTK_WINDOW(dialog));
+                }), NULL);
+                
+                gtk_widget_show(dialog);
             } else {
                 self->show_error_dialog(self->get_last_error());
                 gtk_widget_set_visible(self->progress_bar_, FALSE);
@@ -265,36 +274,91 @@ void VideoResize::setup_ui() {
     // Input file selection
     GtkWidget* input_label = gtk_label_new("Input Video File:");
     gtk_widget_set_halign(input_label, GTK_ALIGN_START);
-    gtk_box_pack_start(GTK_BOX(main_container_), input_label, FALSE, FALSE, 0);
+    gtk_box_append(GTK_BOX(main_container_), input_label);
     
-    input_file_chooser_ = gtk_file_chooser_button_new("Select Input Video", 
-                                                     GTK_FILE_CHOOSER_ACTION_OPEN);
-    gtk_box_pack_start(GTK_BOX(main_container_), input_file_chooser_, FALSE, FALSE, 0);
-    g_signal_connect(input_file_chooser_, "file-set", G_CALLBACK(on_input_file_changed), this);
+    // In GTK4, GtkFileChooserButton is deprecated, using Button + FileChooserDialog
+    GtkWidget* input_button = gtk_button_new_with_label("Select Input Video");
+    input_file_chooser_ = input_button;
+    gtk_box_append(GTK_BOX(main_container_), input_file_chooser_);
+    
+    g_signal_connect(input_button, "clicked", G_CALLBACK([](GtkButton *button, gpointer user_data) {
+        VideoResize* self = static_cast<VideoResize*>(user_data);
+        
+        GtkWidget *dialog = gtk_file_chooser_dialog_new("Open Video File",
+                                                   NULL,
+                                                   GTK_FILE_CHOOSER_ACTION_OPEN,
+                                                   "_Cancel", GTK_RESPONSE_CANCEL,
+                                                   "_Open", GTK_RESPONSE_ACCEPT,
+                                                   NULL);
+                                                   
+        g_signal_connect(dialog, "response", G_CALLBACK([](GtkDialog *dialog, gint response_id, gpointer user_data) {
+            if (response_id == GTK_RESPONSE_ACCEPT) {
+                VideoResize* self = static_cast<VideoResize*>(user_data);
+                GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
+                GFile *file = gtk_file_chooser_get_file(chooser);
+                
+                if (file) {
+                    char *filename = g_file_get_path(file);
+                    
+                    if (filename) {
+                        std::string input_path(filename);
+                        g_free(filename);
+                        
+                        // Update button label with file name
+                        gtk_button_set_label(GTK_BUTTON(self->input_file_chooser_), 
+                                            g_file_get_basename(file));
+                                            
+                        // Get video dimensions
+                        int width, height;
+                        if (self->get_video_dimensions(input_path, width, height)) {
+                            self->source_width_ = width;
+                            self->source_height_ = height;
+                            self->aspect_ratio_ = static_cast<double>(width) / height;
+                            
+                            // Update UI with source dimensions
+                            gtk_spin_button_set_value(GTK_SPIN_BUTTON(self->width_spin_), width);
+                            gtk_spin_button_set_value(GTK_SPIN_BUTTON(self->height_spin_), height);
+                            
+                            // Update preview
+                            self->update_preview();
+                        }
+                    }
+                    
+                    g_object_unref(file);
+                }
+            }
+            
+            gtk_window_destroy(GTK_WINDOW(dialog));
+        }), self);
+        
+        gtk_widget_show(dialog);
+    }), this);
     
     // Preview area
     GtkWidget* preview_label = gtk_label_new("Preview:");
     gtk_widget_set_halign(preview_label, GTK_ALIGN_START);
     gtk_widget_set_margin_top(preview_label, 10);
-    gtk_box_pack_start(GTK_BOX(main_container_), preview_label, FALSE, FALSE, 0);
+    gtk_box_append(GTK_BOX(main_container_), preview_label);
     
     preview_area_ = gtk_drawing_area_new();
     gtk_widget_set_size_request(preview_area_, 320, 180);
     gtk_widget_set_margin_bottom(preview_area_, 10);
-    gtk_box_pack_start(GTK_BOX(main_container_), preview_area_, FALSE, FALSE, 0);
+    gtk_box_append(GTK_BOX(main_container_), preview_area_);
     
-    // Create dimensions grid
+    // Create dimensions frame
     GtkWidget* dimensions_frame = gtk_frame_new("Dimensions");
-    gtk_box_pack_start(GTK_BOX(main_container_), dimensions_frame, FALSE, FALSE, 0);
+    gtk_box_append(GTK_BOX(main_container_), dimensions_frame);
     
     GtkWidget* dimensions_grid = gtk_grid_new();
-    gtk_container_add(GTK_CONTAINER(dimensions_frame), dimensions_grid);
     gtk_grid_set_row_spacing(GTK_GRID(dimensions_grid), 6);
     gtk_grid_set_column_spacing(GTK_GRID(dimensions_grid), 12);
     gtk_widget_set_margin_start(dimensions_grid, 12);
     gtk_widget_set_margin_end(dimensions_grid, 12);
     gtk_widget_set_margin_top(dimensions_grid, 12);
     gtk_widget_set_margin_bottom(dimensions_grid, 12);
+    
+    // In GTK4, gtk_container_add is replaced with set_child
+    gtk_frame_set_child(GTK_FRAME(dimensions_frame), dimensions_grid);
     
     // Width
     GtkWidget* width_label = gtk_label_new("Width:");
@@ -304,7 +368,18 @@ void VideoResize::setup_ui() {
     width_spin_ = gtk_spin_button_new_with_range(16, 7680, 1); // Up to 8K
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(width_spin_), 1280);
     gtk_grid_attach(GTK_GRID(dimensions_grid), width_spin_, 1, 0, 1, 1);
-    g_signal_connect(width_spin_, "value-changed", G_CALLBACK(on_width_changed), this);
+    
+    g_signal_connect(width_spin_, "value-changed", G_CALLBACK([](GtkSpinButton* spin_button, gpointer user_data) {
+        VideoResize* self = static_cast<VideoResize*>(user_data);
+        
+        // If aspect ratio is locked, update height based on width
+        if (gtk_check_button_get_active(GTK_CHECK_BUTTON(self->lock_aspect_check_)) && self->aspect_ratio_ > 0) {
+            self->update_height_from_width();
+        }
+        
+        // Update preview
+        self->update_preview();
+    }), this);
     
     // Height
     GtkWidget* height_label = gtk_label_new("Height:");
@@ -314,13 +389,33 @@ void VideoResize::setup_ui() {
     height_spin_ = gtk_spin_button_new_with_range(16, 4320, 1); // Up to 8K
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(height_spin_), 720);
     gtk_grid_attach(GTK_GRID(dimensions_grid), height_spin_, 1, 1, 1, 1);
-    g_signal_connect(height_spin_, "value-changed", G_CALLBACK(on_height_changed), this);
+    
+    g_signal_connect(height_spin_, "value-changed", G_CALLBACK([](GtkSpinButton* spin_button, gpointer user_data) {
+        VideoResize* self = static_cast<VideoResize*>(user_data);
+        
+        // If aspect ratio is locked, update width based on height
+        if (gtk_check_button_get_active(GTK_CHECK_BUTTON(self->lock_aspect_check_)) && self->aspect_ratio_ > 0) {
+            self->update_width_from_height();
+        }
+        
+        // Update preview
+        self->update_preview();
+    }), this);
     
     // Lock aspect ratio
     lock_aspect_check_ = gtk_check_button_new_with_label("Maintain Aspect Ratio");
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(lock_aspect_check_), TRUE);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(lock_aspect_check_), TRUE);
     gtk_grid_attach(GTK_GRID(dimensions_grid), lock_aspect_check_, 0, 2, 2, 1);
-    g_signal_connect(lock_aspect_check_, "toggled", G_CALLBACK(on_lock_aspect_toggled), this);
+    
+    g_signal_connect(lock_aspect_check_, "toggled", G_CALLBACK([](GtkCheckButton* check_button, gpointer user_data) {
+        VideoResize* self = static_cast<VideoResize*>(user_data);
+        
+        // If toggled on and we have a valid aspect ratio, update height based on current width
+        if (gtk_check_button_get_active(check_button) && self->aspect_ratio_ > 0) {
+            self->update_height_from_width();
+            self->update_preview();
+        }
+    }), this);
     
     // Presets
     GtkWidget* presets_label = gtk_label_new("Common Presets:");
@@ -332,7 +427,8 @@ void VideoResize::setup_ui() {
     
     // Preset buttons
     GtkWidget* hd_button = gtk_button_new_with_label("HD");
-    gtk_box_pack_start(GTK_BOX(presets_box), hd_button, FALSE, FALSE, 0);
+    gtk_box_append(GTK_BOX(presets_box), hd_button);
+    
     g_signal_connect(hd_button, "clicked", G_CALLBACK([](GtkButton* button, gpointer user_data) {
         VideoResize* self = static_cast<VideoResize*>(user_data);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(self->width_spin_), 1280);
@@ -340,7 +436,8 @@ void VideoResize::setup_ui() {
     }), this);
     
     GtkWidget* fhd_button = gtk_button_new_with_label("Full HD");
-    gtk_box_pack_start(GTK_BOX(presets_box), fhd_button, FALSE, FALSE, 0);
+    gtk_box_append(GTK_BOX(presets_box), fhd_button);
+    
     g_signal_connect(fhd_button, "clicked", G_CALLBACK([](GtkButton* button, gpointer user_data) {
         VideoResize* self = static_cast<VideoResize*>(user_data);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(self->width_spin_), 1920);
@@ -348,7 +445,8 @@ void VideoResize::setup_ui() {
     }), this);
     
     GtkWidget* _4k_button = gtk_button_new_with_label("4K");
-    gtk_box_pack_start(GTK_BOX(presets_box), _4k_button, FALSE, FALSE, 0);
+    gtk_box_append(GTK_BOX(presets_box), _4k_button);
+    
     g_signal_connect(_4k_button, "clicked", G_CALLBACK([](GtkButton* button, gpointer user_data) {
         VideoResize* self = static_cast<VideoResize*>(user_data);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(self->width_spin_), 3840);
@@ -360,184 +458,150 @@ void VideoResize::setup_ui() {
     gtk_widget_set_halign(scaling_label, GTK_ALIGN_START);
     gtk_grid_attach(GTK_GRID(dimensions_grid), scaling_label, 0, 4, 1, 1);
     
-    scaling_combo_ = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(scaling_combo_), "Fit (keep aspect ratio)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(scaling_combo_), "Fill (keep aspect ratio)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(scaling_combo_), "Stretch (ignore aspect ratio)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(scaling_combo_), "Custom");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(scaling_combo_), 0); // Default to Fit
+    scaling_combo_ = gtk_drop_down_new_from_strings((const char*[]){
+        "Fit (keep aspect ratio)",
+        "Fill (keep aspect ratio)",
+        "Stretch (ignore aspect ratio)",
+        "Custom",
+        NULL
+    });
     gtk_grid_attach(GTK_GRID(dimensions_grid), scaling_combo_, 1, 4, 1, 1);
-    g_signal_connect(scaling_combo_, "changed", G_CALLBACK(on_scaling_mode_changed), this);
+    
+    g_signal_connect(scaling_combo_, "notify::selected", G_CALLBACK([](GObject* object, GParamSpec* pspec, gpointer user_data) {
+        VideoResize* self = static_cast<VideoResize*>(user_data);
+        
+        guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(object));
+        bool is_custom = (selected == 3); // Index 3 is "Custom"
+        
+        // Enable/disable aspect ratio lock based on scaling mode
+        gtk_widget_set_sensitive(self->lock_aspect_check_, is_custom);
+        
+        // If not custom, force aspect ratio lock on
+        if (!is_custom) {
+            gtk_check_button_set_active(GTK_CHECK_BUTTON(self->lock_aspect_check_), TRUE);
+        }
+        
+        // Update preview
+        self->update_preview();
+    }), this);
     
     // Quality settings
     GtkWidget* quality_label = gtk_label_new("Quality:");
     gtk_widget_set_halign(quality_label, GTK_ALIGN_START);
     gtk_grid_attach(GTK_GRID(dimensions_grid), quality_label, 0, 5, 1, 1);
     
-    quality_combo_ = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(quality_combo_), "Fast (Lower quality)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(quality_combo_), "Good (Balanced)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(quality_combo_), "Best (Higher quality)");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(quality_combo_), 1); // Default to Good
+    quality_combo_ = gtk_drop_down_new_from_strings((const char*[]){
+        "Fast (Lower quality)",
+        "Good (Balanced)",
+        "Best (Higher quality)",
+        NULL
+    });
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(quality_combo_), 1); // Default to Good
     gtk_grid_attach(GTK_GRID(dimensions_grid), quality_combo_, 1, 5, 1, 1);
     
     // Output file selection
     GtkWidget* output_label = gtk_label_new("Output Video File:");
     gtk_widget_set_halign(output_label, GTK_ALIGN_START);
     gtk_widget_set_margin_top(output_label, 10);
-    gtk_box_pack_start(GTK_BOX(main_container_), output_label, FALSE, FALSE, 0);
+    gtk_box_append(GTK_BOX(main_container_), output_label);
     
-    output_file_chooser_ = gtk_file_chooser_button_new("Select Output Location", 
-                                                      GTK_FILE_CHOOSER_ACTION_SAVE);
-    gtk_box_pack_start(GTK_BOX(main_container_), output_file_chooser_, FALSE, FALSE, 0);
+    // In GTK4, GtkFileChooserButton is deprecated, using Button + FileChooserDialog
+    GtkWidget* output_button = gtk_button_new_with_label("Select Output Location");
+    output_file_chooser_ = output_button;
+    gtk_box_append(GTK_BOX(main_container_), output_file_chooser_);
+    
+    g_signal_connect(output_button, "clicked", G_CALLBACK([](GtkButton *button, gpointer user_data) {
+        VideoResize* self = static_cast<VideoResize*>(user_data);
+        
+        GtkWidget *dialog = gtk_file_chooser_dialog_new("Save Video File",
+                                                   NULL,
+                                                   GTK_FILE_CHOOSER_ACTION_SAVE,
+                                                   "_Cancel", GTK_RESPONSE_CANCEL,
+                                                   "_Save", GTK_RESPONSE_ACCEPT,
+                                                   NULL);
+                                                   
+        gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), "resized_video.mp4");
+                                                   
+        g_signal_connect(dialog, "response", G_CALLBACK([](GtkDialog *dialog, gint response_id, gpointer user_data) {
+            if (response_id == GTK_RESPONSE_ACCEPT) {
+                VideoResize* self = static_cast<VideoResize*>(user_data);
+                GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
+                GFile *file = gtk_file_chooser_get_file(chooser);
+                
+                if (file) {
+                    char *filename = g_file_get_path(file);
+                    
+                    if (filename) {
+                        // Update button label with file name
+                        gtk_button_set_label(GTK_BUTTON(self->output_file_chooser_), 
+                                            g_file_get_basename(file));
+                        g_free(filename);
+                    }
+                    
+                    g_object_unref(file);
+                }
+            }
+            
+            gtk_window_destroy(GTK_WINDOW(dialog));
+        }), self);
+        
+        gtk_widget_show(dialog);
+    }), this);
     
     // Resize button
     resize_button_ = gtk_button_new_with_label("Resize Video");
     gtk_widget_set_margin_top(resize_button_, 20);
-    gtk_box_pack_start(GTK_BOX(main_container_), resize_button_, FALSE, FALSE, 0);
-    g_signal_connect(resize_button_, "clicked", G_CALLBACK(on_resize_clicked), this);
+    gtk_box_append(GTK_BOX(main_container_), resize_button_);
+    
+    g_signal_connect(resize_button_, "clicked", G_CALLBACK([](GtkButton* button, gpointer user_data) {
+        VideoResize* self = static_cast<VideoResize*>(user_data);
+        
+        // Get input file and output file (would need to store paths when file dialogs are used)
+        std::string input_path = "";
+        std::string output_path = "";
+        
+        // Get dimensions
+        int width = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(self->width_spin_));
+        int height = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(self->height_spin_));
+        
+        // Get scaling mode
+        guint scaling_mode_idx = gtk_drop_down_get_selected(GTK_DROP_DOWN(self->scaling_combo_));
+        ScalingMode scaling_mode;
+        switch (scaling_mode_idx) {
+            case 0: scaling_mode = ScalingMode::FIT; break;
+            case 1: scaling_mode = ScalingMode::FILL; break;
+            case 2: scaling_mode = ScalingMode::STRETCH; break;
+            case 3: scaling_mode = ScalingMode::CUSTOM; break;
+            default: scaling_mode = ScalingMode::FIT;
+        }
+        
+        // Get quality setting
+        guint quality_idx = gtk_drop_down_get_selected(GTK_DROP_DOWN(self->quality_combo_));
+        ResizeQuality quality;
+        switch (quality_idx) {
+            case 0: quality = ResizeQuality::FAST; break;
+            case 1: quality = ResizeQuality::GOOD; break;
+            case 2: quality = ResizeQuality::BEST; break;
+            default: quality = ResizeQuality::GOOD;
+        }
+        
+        // TODO: Get actual paths from stored locations when file choosers are used
+        
+        // Show mock error for now
+        self->show_error_dialog("Please select both input and output files");
+        
+        // Process resize when we have actual files
+        // self->resize_video(input_path, output_path, width, height, scaling_mode, quality);
+    }), this);
     
     // Progress bar
     progress_bar_ = gtk_progress_bar_new();
     gtk_widget_set_margin_top(progress_bar_, 10);
-    gtk_box_pack_start(GTK_BOX(main_container_), progress_bar_, FALSE, FALSE, 0);
+    gtk_box_append(GTK_BOX(main_container_), progress_bar_);
     gtk_widget_set_visible(progress_bar_, FALSE);
     
     // Show all widgets
-    gtk_widget_show_all(main_container_);
-}
-
-// UI callback functions
-void VideoResize::on_resize_clicked(GtkButton* button, gpointer user_data) {
-    VideoResize* self = static_cast<VideoResize*>(user_data);
-    
-    // Get input file
-    char* input_filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(self->input_file_chooser_));
-    if (input_filename == NULL) {
-        self->show_error_dialog("Please select an input video file");
-        return;
-    }
-    
-    std::string input_path(input_filename);
-    g_free(input_filename);
-    
-    // Get output file
-    char* output_filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(self->output_file_chooser_));
-    if (output_filename == NULL) {
-        self->show_error_dialog("Please select an output file");
-        return;
-    }
-    
-    std::string output_path(output_filename);
-    g_free(output_filename);
-    
-    // Get dimensions
-    int width = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(self->width_spin_));
-    int height = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(self->height_spin_));
-    
-    // Get scaling mode
-    int scaling_mode_idx = gtk_combo_box_get_active(GTK_COMBO_BOX(self->scaling_combo_));
-    ScalingMode scaling_mode;
-    switch (scaling_mode_idx) {
-        case 0: scaling_mode = ScalingMode::FIT; break;
-        case 1: scaling_mode = ScalingMode::FILL; break;
-        case 2: scaling_mode = ScalingMode::STRETCH; break;
-        case 3: scaling_mode = ScalingMode::CUSTOM; break;
-        default: scaling_mode = ScalingMode::FIT;
-    }
-    
-    // Get quality setting
-    int quality_idx = gtk_combo_box_get_active(GTK_COMBO_BOX(self->quality_combo_));
-    ResizeQuality quality;
-    switch (quality_idx) {
-        case 0: quality = ResizeQuality::FAST; break;
-        case 1: quality = ResizeQuality::GOOD; break;
-        case 2: quality = ResizeQuality::BEST; break;
-        default: quality = ResizeQuality::GOOD;
-    }
-    
-    // Process resize
-    self->resize_video(input_path, output_path, width, height, scaling_mode, quality);
-}
-
-void VideoResize::on_input_file_changed(GtkFileChooserButton* chooser, gpointer user_data) {
-    VideoResize* self = static_cast<VideoResize*>(user_data);
-    
-    // Get the selected file
-    char* filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(chooser));
-    if (filename == NULL) {
-        return;
-    }
-    
-    std::string input_path(filename);
-    g_free(filename);
-    
-    // Get video dimensions
-    int width, height;
-    if (self->get_video_dimensions(input_path, width, height)) {
-        self->source_width_ = width;
-        self->source_height_ = height;
-        self->aspect_ratio_ = static_cast<double>(width) / height;
-        
-        // Update UI with source dimensions
-        gtk_spin_button_set_value(GTK_SPIN_BUTTON(self->width_spin_), width);
-        gtk_spin_button_set_value(GTK_SPIN_BUTTON(self->height_spin_), height);
-        
-        // Update preview
-        self->update_preview();
-    }
-}
-
-void VideoResize::on_width_changed(GtkSpinButton* spin_button, gpointer user_data) {
-    VideoResize* self = static_cast<VideoResize*>(user_data);
-    
-    // If aspect ratio is locked, update height based on width
-    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(self->lock_aspect_check_)) && self->aspect_ratio_ > 0) {
-        self->update_height_from_width();
-    }
-    
-    // Update preview
-    self->update_preview();
-}
-
-void VideoResize::on_height_changed(GtkSpinButton* spin_button, gpointer user_data) {
-    VideoResize* self = static_cast<VideoResize*>(user_data);
-    
-    // If aspect ratio is locked, update width based on height
-    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(self->lock_aspect_check_)) && self->aspect_ratio_ > 0) {
-        self->update_width_from_height();
-    }
-    
-    // Update preview
-    self->update_preview();
-}
-
-void VideoResize::on_lock_aspect_toggled(GtkToggleButton* toggle_button, gpointer user_data) {
-    VideoResize* self = static_cast<VideoResize*>(user_data);
-    
-    // If toggled on and we have a valid aspect ratio, update height based on current width
-    if (gtk_toggle_button_get_active(toggle_button) && self->aspect_ratio_ > 0) {
-        self->update_height_from_width();
-        self->update_preview();
-    }
-}
-
-void VideoResize::on_scaling_mode_changed(GtkComboBox* combo_box, gpointer user_data) {
-    VideoResize* self = static_cast<VideoResize*>(user_data);
-    
-    int active = gtk_combo_box_get_active(combo_box);
-    bool is_custom = (active == 3); // Index 3 is "Custom"
-    
-    // Enable/disable aspect ratio lock based on scaling mode
-    gtk_widget_set_sensitive(self->lock_aspect_check_, is_custom);
-    
-    // If not custom, force aspect ratio lock on
-    if (!is_custom) {
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->lock_aspect_check_), TRUE);
-    }
-    
-    // Update preview
-    self->update_preview();
+    gtk_widget_show(main_container_);
 }
 
 // Helper methods
@@ -552,8 +616,12 @@ void VideoResize::show_error_dialog(const std::string& message) {
         GTK_BUTTONS_OK,
         "%s",
         message.c_str());
-    gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
+        
+    g_signal_connect(dialog, "response", G_CALLBACK([](GtkDialog *dialog, gint response_id, gpointer user_data) {
+        gtk_window_destroy(GTK_WINDOW(dialog));
+    }), NULL);
+    
+    gtk_widget_show(dialog);
 }
 
 bool VideoResize::get_video_dimensions(const std::string& video_path, int& width, int& height) {
@@ -601,9 +669,9 @@ void VideoResize::update_width_from_height() {
     int new_width = static_cast<int>(height * aspect_ratio_ + 0.5); // Round to nearest int
     
     // Block the signal to prevent recursive updates
-    g_signal_handlers_block_by_func(width_spin_, (gpointer)on_width_changed, this);
+    g_signal_handlers_block_matched(width_spin_, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, this);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(width_spin_), new_width);
-    g_signal_handlers_unblock_by_func(width_spin_, (gpointer)on_width_changed, this);
+    g_signal_handlers_unblock_matched(width_spin_, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, this);
 }
 
 void VideoResize::update_height_from_width() {
@@ -613,7 +681,7 @@ void VideoResize::update_height_from_width() {
     int new_height = static_cast<int>(width / aspect_ratio_ + 0.5); // Round to nearest int
     
     // Block the signal to prevent recursive updates
-    g_signal_handlers_block_by_func(height_spin_, (gpointer)on_height_changed, this);
+    g_signal_handlers_block_matched(height_spin_, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, this);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(height_spin_), new_height);
-    g_signal_handlers_unblock_by_func(height_spin_, (gpointer)on_height_changed, this);
+    g_signal_handlers_unblock_matched(height_spin_, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, this);
 } 
