@@ -4,6 +4,14 @@
 #include <gst/gst.h>
 #include <gst/editing-services/ges-timeline.h>
 
+/* Include new header files */
+#include "ui/timeline_view_mode.h"
+#include "ui/timeline_hand_tool.h"
+#include "markers/marker_color.h"
+#include "markers/marker_search.h"
+#include "multicam_editor.h"
+#include "edge_trimming.h"
+
 G_BEGIN_DECLS
 
 /* 타임코드 형식 정의 */
@@ -52,6 +60,9 @@ struct _BlouEditTimelineTrack
   gboolean visible;           /* 표시 여부 */
   GdkRGBA color;              /* 트랙 색상 */
   gboolean height_resizing;   /* 트랙 높이 조절 중인지 여부 */
+  gboolean locked;            /* 트랙 잠금 상태 */
+  gboolean muted;             /* 트랙 음소거 상태 */
+  gboolean solo;              /* 트랙 솔로 상태 */
 };
 
 /* 키프레임 보간 유형 정의 */
@@ -135,6 +146,15 @@ typedef enum {
   BLOUEDIT_EDIT_MODE_SLIDE        /* Slide edit - move clip between neighbors without changing their durations */
 } BlouEditEditMode;
 
+/* Structure to track clip movement information */
+typedef struct _BlouEditClipMovementInfo BlouEditClipMovementInfo;
+
+struct _BlouEditClipMovementInfo
+{
+  GESClip *clip;                  /* The clip being moved */
+  gint64 original_start_position; /* Original position before move started */
+};
+
 /* Clip edge selection for trimming */
 typedef enum {
   BLOUEDIT_EDGE_NONE,
@@ -206,6 +226,36 @@ struct _BlouEditHistoryAction
   GValue after_value;                /* State after action (type depends on action) */
 };
 
+/* Track template structure */
+typedef struct _BlouEditTrackTemplate BlouEditTrackTemplate;
+
+/* Track template types */
+typedef enum {
+  BLOUEDIT_TRACK_TEMPLATE_VIDEO,
+  BLOUEDIT_TRACK_TEMPLATE_AUDIO,
+  BLOUEDIT_TRACK_TEMPLATE_TEXT,
+  BLOUEDIT_TRACK_TEMPLATE_CUSTOM
+} BlouEditTrackTemplateType;
+
+struct _BlouEditTrackTemplate
+{
+  gchar *name;                      /* Template name */
+  BlouEditTrackTemplateType type;   /* Template type */
+  GdkRGBA color;                    /* Track color */
+  gint height;                      /* Track height */
+  GESTrackType track_type;          /* Underlying GES track type */
+  gchar *description;               /* Template description */
+};
+
+/* Clip position indicator display mode */
+typedef enum {
+  BLOUEDIT_CLIP_POSITION_HIDDEN,        /* Don't show position */
+  BLOUEDIT_CLIP_POSITION_START_ONLY,    /* Show only start position */
+  BLOUEDIT_CLIP_POSITION_END_ONLY,      /* Show only end position */
+  BLOUEDIT_CLIP_POSITION_BOTH,          /* Show both start and end position */
+  BLOUEDIT_CLIP_POSITION_DURATION       /* Show clip duration */
+} BlouEditClipPositionMode;
+
 #define BLOUEDIT_TYPE_TIMELINE (blouedit_timeline_get_type())
 
 G_DECLARE_FINAL_TYPE (BlouEditTimeline, blouedit_timeline, BLOUEDIT, TIMELINE, GtkWidget)
@@ -249,6 +299,7 @@ void blouedit_timeline_set_marker_color (BlouEditTimeline *timeline, BlouEditTim
 void blouedit_timeline_set_marker_comment (BlouEditTimeline *timeline, BlouEditTimelineMarker *marker, const gchar *comment);
 gboolean blouedit_timeline_export_markers (BlouEditTimeline *timeline, GFile *file);
 gboolean blouedit_timeline_import_markers (BlouEditTimeline *timeline, GFile *file);
+void blouedit_timeline_select_marker (BlouEditTimeline *timeline, BlouEditTimelineMarker *marker);
 
 /* Keyframe functions */
 BlouEditAnimatableProperty *blouedit_timeline_register_property (BlouEditTimeline *timeline, GObject *object, 
@@ -342,6 +393,7 @@ void blouedit_timeline_set_snap_distance (BlouEditTimeline *timeline, guint dist
 guint blouedit_timeline_get_snap_distance (BlouEditTimeline *timeline);
 gint64 blouedit_timeline_snap_position (BlouEditTimeline *timeline, gint64 position);
 gboolean blouedit_timeline_toggle_snap (BlouEditTimeline *timeline);
+void blouedit_timeline_show_context_menu (BlouEditTimeline *timeline, gdouble x, gdouble y);
 
 /* Edit mode functions */
 void blouedit_timeline_set_edit_mode (BlouEditTimeline *timeline, BlouEditEditMode mode);
@@ -366,6 +418,17 @@ void blouedit_timeline_roll_edit (BlouEditTimeline *timeline, GESClip *clip, Blo
 void blouedit_timeline_slip_clip (BlouEditTimeline *timeline, GESClip *clip, gint64 offset);
 void blouedit_timeline_slide_clip (BlouEditTimeline *timeline, GESClip *clip, gint64 position);
 BlouEditClipEdge blouedit_timeline_get_clip_edge_at_position (BlouEditTimeline *timeline, GESClip *clip, double x, double tolerance);
+
+/* Clip alignment functions */
+typedef enum {
+  BLOUEDIT_ALIGN_START,   /* Align clips by their start positions */
+  BLOUEDIT_ALIGN_END,     /* Align clips by their end positions */
+  BLOUEDIT_ALIGN_CENTER   /* Align clips by their center positions */
+} BlouEditAlignmentType;
+
+void blouedit_timeline_align_selected_clips (BlouEditTimeline *timeline, BlouEditAlignmentType align_type);
+void blouedit_timeline_distribute_selected_clips (BlouEditTimeline *timeline);
+void blouedit_timeline_remove_gaps_between_selected_clips (BlouEditTimeline *timeline);
 
 /* Clip grouping functions */
 void blouedit_timeline_group_selected_clips (BlouEditTimeline *timeline);
@@ -425,5 +488,158 @@ void blouedit_timeline_group_sync_position (BlouEditTimelineGroup *group, BlouEd
 /* Serialize/Deserialize functions */
 gboolean blouedit_timeline_save_to_file (BlouEditTimeline *timeline, GFile *file);
 gboolean blouedit_timeline_load_from_file (BlouEditTimeline *timeline, GFile *file);
+
+/* Message display */
+void blouedit_timeline_show_message (BlouEditTimeline *timeline, const gchar *message);
+
+/* Timeline minimap functions */
+void blouedit_timeline_show_minimap (BlouEditTimeline *timeline, gboolean show);
+gboolean blouedit_timeline_get_minimap_visible (BlouEditTimeline *timeline);
+void blouedit_timeline_set_minimap_height (BlouEditTimeline *timeline, gint height);
+gint blouedit_timeline_get_minimap_height (BlouEditTimeline *timeline);
+gboolean blouedit_timeline_toggle_minimap (BlouEditTimeline *timeline);
+
+/* Timeline minimap */
+#include "timeline_minimap.h"
+
+/* Structure for the timeline */
+struct _BlouEditTimeline
+{
+  GtkWidget parent_instance;
+  
+  GESTimeline *ges_timeline;
+  GstElement *pipeline;
+  
+  gdouble zoom_level;           /* Current zoom level (1.0 is default) */
+  gdouble min_zoom_level;       /* Minimum zoom level (zoomed out) */
+  gdouble max_zoom_level;       /* Maximum zoom level (zoomed in) */
+  gdouble zoom_step;            /* How much to change per zoom action */
+  
+  /* Snap properties */
+  BlouEditSnapMode snap_mode;   /* Current snap mode */
+  guint snap_distance;          /* Snap distance in pixels */
+  guint grid_interval;          /* Grid interval in timeline units (e.g. frames or ms) */
+  
+  /* Playback range properties */
+  gboolean use_playback_range;  /* Whether to use in/out points for playback */
+  gint64 in_point;              /* In point for playback in timeline units */
+  gint64 out_point;             /* Out point for playback in timeline units */
+  gboolean show_range_markers;  /* Whether to show range markers in ruler */
+  
+  /* Scrubbing properties */
+  gboolean is_scrubbing;        /* Whether we are currently scrubbing */
+  BlouEditScrubMode scrub_mode; /* Current scrubbing mode */
+  gdouble scrub_start_x;        /* X position where scrubbing started */
+  gint64 scrub_start_position;  /* Timeline position when scrubbing started */
+  gdouble scrub_sensitivity;    /* Scrubbing sensitivity */
+  
+  /* Timeline layout properties */
+  gint ruler_height;            /* Height of the ruler at the top */
+  gint timeline_start_x;        /* Horizontal offset where timeline starts (for labels) */
+  gint playhead_x;              /* X position of the playhead */
+  
+  /* Track properties */
+  GSList *tracks;               /* List of BlouEditTimelineTrack */
+  gint default_track_height;    /* Default height for tracks */
+  gint folded_track_height;     /* Height for folded tracks */
+  gint track_header_width;      /* Width of track header area */
+  gint track_spacing;           /* Spacing between tracks */
+  BlouEditTimelineTrack *selected_track; /* Currently selected track */
+  
+  /* Clip position indicator properties */
+  BlouEditClipPositionMode clip_position_mode; /* How to display clip positions */
+  gboolean use_frames_for_position;           /* Use frames instead of timecode */
+  GdkRGBA clip_position_color;                /* Color for position text */
+  gint clip_position_font_size;               /* Font size for position text */
+  
+  /* Track resizing properties */
+  gboolean is_resizing_track;        /* Whether a track is being resized */
+  BlouEditTimelineTrack *resizing_track; /* Track currently being resized */
+  gint resize_start_y;               /* Y position where resize started */
+  gint resize_start_height;          /* Original height of track before resize */
+  gint min_track_height;             /* Minimum track height allowed */
+  gint max_track_height;             /* Maximum track height allowed */
+  
+  /* Track reordering properties */
+  gboolean is_reordering_track;      /* Whether a track is being reordered */
+  BlouEditTimelineTrack *reordering_track; /* Track currently being reordered */
+  gint reorder_start_y;              /* Y position where reorder started */
+  gint reorder_original_index;       /* Original index of the track being reordered */
+  gint reorder_current_index;        /* Current index during reordering */
+  
+  /* Marker properties */
+  GSList *markers;                   /* List of BlouEditTimelineMarker */
+  guint next_marker_id;              /* Next unique marker ID to assign */
+  BlouEditTimelineMarker *selected_marker; /* Currently selected marker */
+  gboolean show_markers;             /* Whether to show markers */
+  gint marker_height;                /* Height of marker display in ruler */
+  
+  /* Clip editing properties */
+  BlouEditEditMode edit_mode;        /* Current edit mode (normal, ripple, etc.) */
+  GSList *selected_clips;            /* List of selected GESClip objects */
+  gboolean is_trimming;              /* Whether we are currently trimming a clip */
+  GESClip *trimming_clip;            /* Clip currently being trimmed */
+  BlouEditClipEdge trimming_edge;    /* Which edge is being trimmed */
+  gboolean is_moving_clip;           /* Whether we are currently moving a clip */
+  GESClip *moving_clip;              /* Clip currently being moved */
+  gint64 moving_start_position;      /* Original position of clip being moved */
+  gdouble moving_start_x;            /* X position where move started */
+  gboolean is_moving_multiple_clips; /* Whether multiple clips are being moved together */
+  GSList *moving_clips_info;         /* List of BlouEditClipMovementInfo for clips being moved */
+  gint64 multi_move_offset;          /* Common offset for all moving clips */
+  
+  /* Keyframe properties */
+  GSList *animatable_properties;     /* List of BlouEditAnimatableProperty */
+  guint next_property_id;            /* Next unique property ID to assign */
+  guint next_keyframe_id;            /* Next unique keyframe ID to assign */
+  BlouEditAnimatableProperty *selected_property; /* Currently selected property */
+  BlouEditKeyframe *selected_keyframe; /* Currently selected keyframe */
+  gboolean show_keyframes;           /* Whether to show keyframes */
+  gboolean is_moving_keyframe;       /* Whether we are currently moving a keyframe */
+  BlouEditKeyframe *moving_keyframe; /* Keyframe currently being moved */
+  gint64 moving_keyframe_start_position; /* Original position of keyframe being moved */
+  gdouble moving_keyframe_start_value; /* Original value of keyframe being moved */
+  gdouble moving_keyframe_start_x;   /* X position where keyframe move started */
+  gdouble moving_keyframe_start_y;   /* Y position where keyframe move started */
+  gboolean is_editing_keyframe_handle; /* Whether we are editing a keyframe's bezier handle */
+  BlouEditKeyframe *handle_keyframe; /* Keyframe whose handle is being edited */
+  gboolean is_editing_left_handle;   /* Whether editing left or right handle */
+  gdouble handle_start_x;            /* Original X position of handle being edited */
+  gdouble handle_start_y;            /* Original Y position of handle being edited */
+  GtkWidget *keyframe_editor;        /* Keyframe editor widget */
+  gint keyframe_area_height;         /* Height of keyframe display area */
+  gboolean show_keyframe_values;     /* Whether to show keyframe values */
+  
+  /* Filtering properties */
+  BlouEditMediaFilterType media_filter; /* Current media filter */
+  
+  /* History properties */
+  GSList *history;                   /* List of history actions */
+  gint history_position;             /* Current position in history */
+  gint max_history_size;             /* Maximum number of history items to keep */
+  gboolean group_actions;            /* Whether to group actions together */
+  GSList *current_group;             /* Current group of actions */
+  gchar *current_group_description;  /* Description of current group */
+  
+  /* Timecode properties */
+  BlouEditTimecodeFormat timecode_format; /* Current timecode format */
+  gdouble framerate;                 /* Current framerate */
+  gboolean show_timecode;            /* Whether to show timecode display */
+  GtkWidget *timecode_entry;         /* Timecode entry widget */
+  
+  /* Autoscroll properties */
+  BlouEditAutoscrollMode autoscroll_mode; /* Current autoscroll mode */
+  
+  /* Player connection */
+  GstElement *player;                /* Connected player element */
+  gulong player_position_handler;    /* Handler ID for player position updates */
+  
+  /* Multi-timeline properties */
+  BlouEditTimelineGroup *timeline_group; /* Group this timeline belongs to */
+  gchar *timeline_name;              /* Name of this timeline in the group */
+  
+  /* Timeline minimap */
+  BlouEditTimelineMinimap *minimap;  /* Timeline minimap for project overview */
+};
 
 G_END_DECLS 

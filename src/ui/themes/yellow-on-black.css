@@ -1,0 +1,289 @@
+/* BLOUedit Yellow on Black High Contrast Theme */
+
+/* Base colors */
+@define-color bg_color #000000;
+@define-color fg_color #ffff00;
+@define-color selected_bg_color #ffff00;
+@define-color selected_fg_color #000000;
+@define-color accent_color #ffcc00;
+@define-color warning_color #ff6600;
+@define-color error_color #ff0000;
+@define-color success_color #00ff00;
+
+/* Widget specific colors */
+@define-color headerbar_bg_color #000000;
+@define-color headerbar_fg_color #ffff00;
+@define-color sidebar_bg_color #000000;
+@define-color sidebar_fg_color #ffff00;
+@define-color timeline_bg_color #000000;
+@define-color timeline_ruler_color #ffff00;
+@define-color timeline_grid_color #ffcc00;
+@define-color border_color #ffff00;
+
+/* Apply base colors to widgets */
+* {
+  -gtk-icon-style: regular;
+  border-color: @border_color;
+  color: @fg_color;
+  background-color: @bg_color;
+  text-shadow: none;
+  box-shadow: none;
+}
+
+window,
+dialog {
+  background-color: @bg_color;
+  color: @fg_color;
+}
+
+headerbar,
+.titlebar {
+  background-color: @headerbar_bg_color;
+  color: @headerbar_fg_color;
+  border-bottom: 1px solid @border_color;
+}
+
+button {
+  background-color: #222200;
+  color: @fg_color;
+  border: 1px solid @border_color;
+  padding: 6px 12px;
+}
+
+button:hover {
+  background-color: #333300;
+}
+
+button:active,
+button:checked {
+  background-color: @selected_bg_color;
+  color: @selected_fg_color;
+}
+
+button:disabled {
+  background-color: #222200;
+  color: #aaaa00;
+  border-color: #aaaa00;
+}
+
+entry {
+  background-color: #000000;
+  color: @fg_color;
+  border: 1px solid @border_color;
+  padding: 6px;
+}
+
+entry:focus {
+  border-color: @accent_color;
+  outline: 2px solid @accent_color;
+}
+
+notebook {
+  background-color: @bg_color;
+  color: @fg_color;
+}
+
+notebook tab {
+  background-color: #222200;
+  color: @fg_color;
+  padding: 6px 12px;
+  border: 1px solid @border_color;
+}
+
+notebook tab:checked {
+  background-color: @selected_bg_color;
+  color: @selected_fg_color;
+}
+
+checkbutton check {
+  border: 2px solid @border_color;
+  background-color: transparent;
+  min-width: 18px;
+  min-height: 18px;
+}
+
+checkbutton check:checked {
+  background-color: @selected_bg_color;
+  border-color: @selected_bg_color;
+  color: @selected_fg_color;
+}
+
+radiobutton radio {
+  border: 2px solid @border_color;
+  background-color: transparent;
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: 50%;
+}
+
+radiobutton radio:checked {
+  background-color: @selected_bg_color;
+  border-color: @selected_bg_color;
+  color: @selected_fg_color;
+}
+
+combobox button {
+  background-color: #222200;
+  color: @fg_color;
+  border: 1px solid @border_color;
+}
+
+combobox menu {
+  background-color: #222200;
+  color: @fg_color;
+  border: 1px solid @border_color;
+  padding: 4px 0;
+}
+
+list,
+treeview {
+  background-color: #000000;
+  color: @fg_color;
+  border: 1px solid @border_color;
+}
+
+list row:selected,
+treeview row:selected {
+  background-color: @selected_bg_color;
+  color: @selected_fg_color;
+}
+
+popover {
+  background-color: #222200;
+  color: @fg_color;
+  border: 1px solid @border_color;
+  padding: 4px;
+}
+
+menu {
+  background-color: #222200;
+  color: @fg_color;
+  border: 1px solid @border_color;
+}
+
+menuitem {
+  padding: 6px 12px;
+}
+
+menuitem:hover {
+  background-color: @selected_bg_color;
+  color: @selected_fg_color;
+}
+
+separator {
+  background-color: @border_color;
+  min-height: 1px;
+}
+
+scale {
+  color: @fg_color;
+  background-color: transparent;
+}
+
+scale slider {
+  background-color: @selected_bg_color;
+  border: 1px solid @border_color;
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: 50%;
+}
+
+scale trough {
+  background-color: #333300;
+  border: 1px solid @border_color;
+  min-height: 6px;
+}
+
+scale trough highlight {
+  background-color: @selected_bg_color;
+}
+
+scrollbar {
+  background-color: transparent;
+}
+
+scrollbar slider {
+  background-color: #aaaa00;
+  border: 1px solid @border_color;
+  min-width: 14px;
+  min-height: 14px;
+}
+
+scrollbar slider:hover {
+  background-color: #dddd00;
+}
+
+progressbar {
+  color: @fg_color;
+  background-color: transparent;
+}
+
+progressbar trough {
+  background-color: #222200;
+  border: 1px solid @border_color;
+  min-height: 10px;
+}
+
+progressbar progress {
+  background-color: @selected_bg_color;
+}
+
+switch {
+  background-color: #333300;
+  border: 1px solid @border_color;
+}
+
+switch:checked {
+  background-color: @selected_bg_color;
+}
+
+switch slider {
+  background-color: #000000;
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: 50%;
+}
+
+.blouedit-timeline {
+  background-color: @timeline_bg_color;
+}
+
+.blouedit-timeline-ruler {
+  background-color: @headerbar_bg_color;
+  color: @timeline_ruler_color;
+  border-bottom: 1px solid @border_color;
+}
+
+.blouedit-timeline-grid {
+  color: @timeline_grid_color;
+}
+
+.blouedit-timeline-marker {
+  color: @warning_color;
+}
+
+.blouedit-timeline-playhead {
+  background-color: @accent_color;
+  width: 2px;
+}
+
+.blouedit-sidebar {
+  background-color: @sidebar_bg_color;
+  color: @sidebar_fg_color;
+}
+
+/* Focus style for keyboard navigation */
+*:focus {
+  outline: 3px solid @accent_color;
+}
+
+.focus-visible {
+  outline: 3px solid @accent_color;
+}
+
+tooltip {
+  background-color: #222200;
+  color: @fg_color;
+  border: 1px solid @border_color;
+  padding: 4px;
+} 

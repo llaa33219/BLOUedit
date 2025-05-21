@@ -777,6 +777,9 @@ struct _BlouEditTimeline
   GESClip *moving_clip;              /* Clip currently being moved */
   gint64 moving_start_position;      /* Original position of clip being moved */
   gdouble moving_start_x;            /* X position where move started */
+  gboolean is_moving_multiple_clips; /* Whether multiple clips are being moved together */
+  GSList *moving_clips_info;         /* List of BlouEditClipMovementInfo for clips being moved */
+  gint64 multi_move_offset;          /* Common offset for all moving clips */
   
   /* Keyframe properties */
   GSList *animatable_properties;     /* List of BlouEditAnimatableProperty */
@@ -827,6 +830,22 @@ struct _BlouEditTimeline
   /* Multi-timeline properties */
   BlouEditTimelineGroup *timeline_group; /* Group this timeline belongs to */
   gchar *timeline_name;              /* Name of this timeline in the group */
+  
+  /* Timeline scale properties */
+  BlouEditTimelineScaleMode scale_mode;  /* Scale mode for timeline ruler */
+  gint64 custom_scale_interval;          /* Custom scale interval */
+  
+  /* Media type visualization properties */
+  BlouEditMediaVisualMode media_visual_mode; /* Media type visualization mode */
+  GdkRGBA media_type_colors[6];             /* Colors for each media type */
+  gboolean media_type_colors_initialized;   /* Whether media type colors have been initialized */
+  
+  /* Multicam properties */
+  BlouEditMulticamMode multicam_mode;         /* Multicam editing mode */
+  BlouEditMulticamGroup *active_multicam_group; /* Active multicam group */
+  
+  /* Edge trimming properties */
+  BlouEditEdgeTrimMode edge_trim_mode;        /* Edge trimming mode */
 };
 
 G_DEFINE_TYPE (BlouEditTimeline, blouedit_timeline, GTK_TYPE_WIDGET)
@@ -846,6 +865,7 @@ marker_free (BlouEditTimelineMarker *marker)
   if (marker) {
     g_free (marker->name);
     g_free (marker->comment);
+    g_free (marker->detailed_memo);
     g_free (marker);
   }
 }
@@ -977,6 +997,9 @@ blouedit_timeline_init (BlouEditTimeline *timeline)
   timeline->moving_clip = NULL;
   timeline->moving_start_position = 0;
   timeline->moving_start_x = 0;
+  timeline->is_moving_multiple_clips = FALSE;
+  timeline->moving_clips_info = NULL;
+  timeline->multi_move_offset = 0;
   
   /* Initialize keyframe parameters */
   timeline->animatable_properties = NULL;
@@ -1028,6 +1051,21 @@ blouedit_timeline_init (BlouEditTimeline *timeline)
   timeline->timeline_group = NULL;
   timeline->timeline_name = g_strdup("Main Timeline");
   
+  /* Initialize timeline scale parameters */
+  timeline->scale_mode = BLOUEDIT_TIMELINE_SCALE_SECONDS;
+  timeline->custom_scale_interval = 1000; /* 1 second */
+  
+  /* Initialize media type visualization parameters */
+  timeline->media_visual_mode = BLOUEDIT_MEDIA_VISUAL_MODE_COLOR;
+  timeline->media_type_colors_initialized = FALSE;
+  
+  /* Initialize multicam properties */
+  timeline->multicam_mode = BLOUEDIT_MULTICAM_MODE_DISABLED;
+  timeline->active_multicam_group = NULL;
+  
+  /* Initialize edge trimming properties */
+  timeline->edge_trim_mode = BLOUEDIT_EDGE_TRIM_MODE_NORMAL;
+  
   /* Initialize GES timeline and pipeline */
   timeline->ges_timeline = ges_timeline_new ();
   timeline->pipeline = gst_pipeline_new ("timeline-pipeline");
@@ -1041,12 +1079,27 @@ blouedit_timeline_init (BlouEditTimeline *timeline)
                         GDK_POINTER_MOTION_MASK |
                         GDK_KEY_PRESS_MASK |
                         GDK_SCROLL_MASK);
+                        
+  /* Connect key event handlers */
+  g_signal_connect (GTK_WIDGET(timeline), "key-press-event",
+                   G_CALLBACK (blouedit_timeline_key_press_event), timeline);
+  
+  /* Initialize the edit mode shortcuts */
+  blouedit_timeline_init_edit_mode_shortcuts(timeline);
 }
 
 BlouEditTimeline *
 blouedit_timeline_new (void)
 {
-  return g_object_new (BLOUEDIT_TYPE_TIMELINE, NULL);
+  BlouEditTimeline *timeline = g_object_new (BLOUEDIT_TYPE_TIMELINE, NULL);
+  
+  // 타임라인이 생성된 후 기본 트랙 설정
+  if (timeline) {
+    // 기본 트랙 생성 (비디오 트랙 1개, 오디오 트랙 1개)
+    blouedit_timeline_create_default_tracks (timeline);
+  }
+  
+  return timeline;
 }
 
 /* Timeline zoom functions */
@@ -1786,14 +1839,22 @@ blouedit_timeline_handle_button_press (BlouEditTimeline *timeline, GdkEventButto
         return TRUE;
       } else {
         /* Regular clip click - start drag operation */
-        timeline->is_dragging_clip = TRUE;
-        timeline->dragging_clip = clip;
-        timeline->drag_start_position = ges_clip_get_start (clip);
-        timeline->drag_start_x = x;
         
         /* Select the clip */
         /* If shift is held, add to current selection */
         blouedit_timeline_select_clip (timeline, clip, !(event->state & GDK_SHIFT_MASK));
+        
+        /* Check if we have multiple clips selected */
+        if (timeline->selected_clips && g_slist_length(timeline->selected_clips) > 1) {
+          /* Start multiple clip movement */
+          blouedit_timeline_start_moving_multiple_clips (timeline, x);
+        } else {
+          /* Single clip movement */
+          timeline->is_dragging_clip = TRUE;
+          timeline->dragging_clip = clip;
+          timeline->drag_start_position = ges_clip_get_start (clip);
+          timeline->drag_start_x = x;
+        }
         
         return TRUE;
       }
@@ -1824,8 +1885,7 @@ blouedit_timeline_handle_button_press (BlouEditTimeline *timeline, GdkEventButto
       /* TODO: Show clip context menu */
     } else {
       /* Right click on empty area */
-      
-      /* TODO: Show timeline context menu */
+      blouedit_timeline_show_context_menu (timeline, x, y);
     }
   }
   
@@ -1986,6 +2046,13 @@ blouedit_timeline_handle_motion (BlouEditTimeline *timeline, GdkEventMotion *eve
                                   timeline->trimming_edge, new_position);
     }
     
+    return TRUE;
+  }
+  
+  /* Handle multiple clip moving operation */
+  if (timeline->is_moving_multiple_clips) {
+    /* Update positions of all selected clips */
+    blouedit_timeline_move_multiple_clips_to (timeline, x);
     return TRUE;
   }
   
@@ -2183,6 +2250,12 @@ blouedit_timeline_handle_button_release (BlouEditTimeline *timeline, GdkEventBut
     timeline->is_trimming = FALSE;
     timeline->trimming_clip = NULL;
     timeline->trimming_edge = BLOUEDIT_EDGE_NONE;
+    return TRUE;
+  }
+  
+  /* Handle multiple clip movement completion */
+  if (timeline->is_moving_multiple_clips) {
+    blouedit_timeline_end_moving_multiple_clips (timeline);
     return TRUE;
   }
   
@@ -2506,8 +2579,21 @@ blouedit_timeline_draw (GtkWidget *widget, cairo_t *cr)
   cairo_rectangle (cr, 0, 0, width, height);
   cairo_fill (cr);
   
-  /* Draw timecode ruler at the top */
-  blouedit_timeline_draw_timecode_ruler (timeline, cr, width, height);
+  /* Draw ruler at the top based on scale mode */
+  if (timeline->scale_mode == BLOUEDIT_TIMELINE_SCALE_CUSTOM) {
+    blouedit_timeline_draw_scale(timeline, cr, width, timeline->ruler_height);
+  } else {
+    blouedit_timeline_draw_timecode_ruler(timeline, cr, width, height);
+  }
+  
+  /* If in multicam source view mode, draw the source view */
+  if (timeline->edit_mode == BLOUEDIT_EDIT_MODE_MULTICAM && 
+      timeline->multicam_mode == BLOUEDIT_MULTICAM_MODE_SOURCE_VIEW) {
+    blouedit_timeline_draw_multicam_source_view(timeline, cr, width, height);
+  }
+  
+  /* Draw edge trimming UI if active */
+  blouedit_timeline_draw_edge_trimming_ui(timeline, cr, width, height);
   
   /* Calculate vertical positions */
   int y_offset = timeline->ruler_height;
@@ -2518,6 +2604,9 @@ blouedit_timeline_draw (GtkWidget *widget, cairo_t *cr)
    *   // Draw the clip
    * }
    */
+  
+  /* Draw the edit mode overlay if needed */
+  blouedit_timeline_draw_edit_mode_overlay(timeline, cr, width, height);
   
   /* Draw keyframes area if we have properties and keyframes are visible */
   if (timeline->show_keyframes && timeline->animatable_properties) {
@@ -2544,10 +2633,10 @@ blouedit_timeline_draw (GtkWidget *widget, cairo_t *cr)
     int property_y = keyframe_area_y;
     
     /* Draw header for properties area */
-    cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
+  cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
     cairo_rectangle (cr, 0, keyframe_area_y, timeline->timeline_start_x, timeline->keyframe_area_height);
-    cairo_fill (cr);
-    
+  cairo_fill (cr);
+  
     cairo_set_source_rgb (cr, 0.7, 0.7, 0.7);
     pango_layout_set_text (layout, "Properties", -1);
     cairo_move_to (cr, 5, keyframe_area_y + 3);
@@ -2712,11 +2801,11 @@ blouedit_timeline_draw (GtkWidget *widget, cairo_t *cr)
                 
                 /* Handle line */
                 cairo_set_source_rgba (cr, 0.8, 0.8, 0.2, 0.7);
-                cairo_set_line_width (cr, 1.0);
+  cairo_set_line_width (cr, 1.0);
                 cairo_move_to (cr, keyframe_x, keyframe_y);
                 cairo_line_to (cr, handle_x, handle_y);
-                cairo_stroke (cr);
-                
+  cairo_stroke (cr);
+  
                 /* Handle control point */
                 cairo_set_source_rgb (cr, 0.8, 0.8, 0.2);
                 cairo_arc (cr, handle_x, handle_y, 3, 0, 2 * G_PI);
@@ -4677,8 +4766,8 @@ keyframe_editor_preview_draw (GtkWidget *widget, cairo_t *cr, BlouEditKeyframe *
   /* Draw background */
   cairo_set_source_rgb (cr, 0.1, 0.1, 0.1);
   cairo_rectangle (cr, 0, 0, width, height);
-  cairo_fill (cr);
-  
+      cairo_fill (cr);
+      
   /* Draw grid */
   cairo_set_source_rgba (cr, 0.3, 0.3, 0.3, 0.5);
   cairo_set_line_width (cr, 0.5);
@@ -4754,7 +4843,7 @@ keyframe_editor_preview_draw (GtkWidget *widget, cairo_t *cr, BlouEditKeyframe *
     start_kf.handle_left_y = gtk_spin_button_get_value (left_y_spin);
     start_kf.handle_right_x = gtk_spin_button_get_value (right_x_spin);
     start_kf.handle_right_y = gtk_spin_button_get_value (right_y_spin);
-  } else {
+      } else {
     /* Default handle values */
     start_kf.handle_left_x = -0.25;
     start_kf.handle_left_y = 0.0;
@@ -4837,8 +4926,8 @@ keyframe_editor_preview_draw (GtkWidget *widget, cairo_t *cr, BlouEditKeyframe *
   /* Draw start point (current keyframe) */
   cairo_set_source_rgb (cr, 1.0, 0.8, 0.2);
   cairo_arc (cr, 0, height - (start_kf.value * height), 5, 0, 2 * G_PI);
-  cairo_fill (cr);
-  
+      cairo_fill (cr);
+      
   /* Draw end point */
   cairo_set_source_rgb (cr, 0.7, 0.7, 0.7);
   cairo_arc (cr, width, height - (end_kf.value * height), 3, 0, 2 * G_PI);
@@ -4851,11 +4940,11 @@ keyframe_editor_preview_draw (GtkWidget *widget, cairo_t *cr, BlouEditKeyframe *
     gdouble handle_y = start_kf.handle_right_y * height;
     
     cairo_set_source_rgba (cr, 0.8, 0.8, 0.2, 0.7);
-    cairo_set_line_width (cr, 1.0);
+      cairo_set_line_width (cr, 1.0);
     cairo_move_to (cr, 0, height - (start_kf.value * height));
     cairo_line_to (cr, handle_x, height - (start_kf.value * height) - handle_y);
-    cairo_stroke (cr);
-    
+      cairo_stroke (cr);
+      
     /* Draw handle control point */
     cairo_set_source_rgb (cr, 0.8, 0.8, 0.2);
     cairo_arc (cr, handle_x, height - (start_kf.value * height) - handle_y, 3, 0, 2 * G_PI);
@@ -4968,4 +5057,1181 @@ on_clear_keyframes (GtkMenuItem *menuitem, gpointer user_data)
     /* Redraw the timeline */
     gtk_widget_queue_draw (GTK_WIDGET (timeline));
   }
+}
+
+/**
+ * blouedit_timeline_add_track:
+ * @timeline: 타임라인 객체
+ * @track_type: 트랙 유형 (GES_TRACK_TYPE_AUDIO, GES_TRACK_TYPE_VIDEO 등)
+ * @name: 트랙 이름 (NULL일 경우 자동 생성)
+ *
+ * 타임라인에 새 트랙을 추가합니다. 트랙은 비디오, 오디오, 텍스트 등의 유형이 될 수 있습니다.
+ * 무제한 트랙 지원을 위해 필요한 내부 구조를 생성합니다.
+ *
+ * Returns: 새로 생성된 트랙 객체 또는 실패 시 NULL
+ */
+BlouEditTimelineTrack *
+blouedit_timeline_add_track (BlouEditTimeline *timeline, GESTrackType track_type, const gchar *name)
+{
+  g_return_val_if_fail (BLOUEDIT_IS_TIMELINE (timeline), NULL);
+  g_return_val_if_fail (timeline->ges_timeline != NULL, NULL);
+  
+  // GES 트랙 생성
+  GESTrack *ges_track = ges_track_new (track_type);
+  if (!ges_track) {
+    g_warning ("Failed to create new GES track");
+    return NULL;
+  }
+  
+  // 타임라인에 트랙 추가
+  if (!ges_timeline_add_track (timeline->ges_timeline, ges_track)) {
+    g_warning ("Failed to add track to timeline");
+    gst_object_unref (ges_track);
+    return NULL;
+  }
+  
+  // 트랙 객체 생성
+  BlouEditTimelineTrack *track = g_new0 (BlouEditTimelineTrack, 1);
+  track->ges_track = ges_track;
+  
+  // 트랙 이름 설정 - 제공되지 않은 경우 자동 생성
+  if (name) {
+    track->name = g_strdup (name);
+  } else {
+    // 트랙 타입에 따라 자동 이름 생성
+    if (track_type == GES_TRACK_TYPE_VIDEO) {
+      // 비디오 트랙 번호 계산
+      int video_track_count = 0;
+      for (GSList *t = timeline->tracks; t; t = t->next) {
+        BlouEditTimelineTrack *existing = (BlouEditTimelineTrack *)t->data;
+        if (ges_track_get_track_type (existing->ges_track) == GES_TRACK_TYPE_VIDEO) {
+          video_track_count++;
+        }
+      }
+      track->name = g_strdup_printf (_("Video %d"), video_track_count + 1);
+    } else if (track_type == GES_TRACK_TYPE_AUDIO) {
+      // 오디오 트랙 번호 계산
+      int audio_track_count = 0;
+      for (GSList *t = timeline->tracks; t; t = t->next) {
+        BlouEditTimelineTrack *existing = (BlouEditTimelineTrack *)t->data;
+        if (ges_track_get_track_type (existing->ges_track) == GES_TRACK_TYPE_AUDIO) {
+          audio_track_count++;
+        }
+      }
+      track->name = g_strdup_printf (_("Audio %d"), audio_track_count + 1);
+    } else {
+      // 기타 트랙 타입
+      track->name = g_strdup_printf (_("Track %d"), g_slist_length (timeline->tracks) + 1);
+    }
+  }
+  
+  // 기본 속성 설정
+  track->folded = FALSE;
+  track->height = timeline->default_track_height;
+  track->folded_height = timeline->folded_track_height;
+  track->visible = TRUE;
+  track->height_resizing = FALSE;
+  
+  // 트랙 타입에 따라 기본 색상 설정
+  if (track_type == GES_TRACK_TYPE_VIDEO) {
+    // 비디오 트랙은 파란색 계열
+    track->color.red = 0.2;
+    track->color.green = 0.4;
+    track->color.blue = 0.8;
+    track->color.alpha = 1.0;
+  } else if (track_type == GES_TRACK_TYPE_AUDIO) {
+    // 오디오 트랙은 녹색 계열
+    track->color.red = 0.2;
+    track->color.green = 0.7;
+    track->color.blue = 0.3;
+    track->color.alpha = 1.0;
+  } else {
+    // 기타 트랙은 회색 계열
+    track->color.red = 0.5;
+    track->color.green = 0.5;
+    track->color.blue = 0.5;
+    track->color.alpha = 1.0;
+  }
+  
+  // 트랙 리스트에 추가
+  timeline->tracks = g_slist_append (timeline->tracks, track);
+  
+  // 히스토리에 기록
+  blouedit_timeline_record_action (timeline, 
+                                BLOUEDIT_HISTORY_ADD_TRACK,
+                                GES_TIMELINE_ELEMENT (ges_track),
+                                g_strdup_printf (_("Add %s"), track->name),
+                                NULL, NULL);
+  
+  // 위젯 다시 그리기
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+  
+  return track;
+}
+
+/**
+ * blouedit_timeline_remove_track:
+ * @timeline: 타임라인 객체
+ * @track: 제거할 트랙 객체
+ *
+ * 타임라인에서 트랙을 제거합니다.
+ */
+void
+blouedit_timeline_remove_track (BlouEditTimeline *timeline, BlouEditTimelineTrack *track)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  g_return_if_fail (track != NULL);
+  
+  // 트랙이 현재 선택되어 있는 경우 선택 해제
+      if (timeline->selected_track == track) {
+    timeline->selected_track = NULL;
+  }
+  
+  // 트랙이 현재 크기 조절 중이거나 위치 변경 중인 경우 작업 취소
+  if (timeline->is_resizing_track && timeline->resizing_track == track) {
+    timeline->is_resizing_track = FALSE;
+    timeline->resizing_track = NULL;
+  }
+  
+  if (timeline->is_reordering_track && timeline->reordering_track == track) {
+    timeline->is_reordering_track = FALSE;
+    timeline->reordering_track = NULL;
+  }
+  
+  // 히스토리에 기록
+  blouedit_timeline_record_action (timeline, 
+                                BLOUEDIT_HISTORY_REMOVE_TRACK,
+                                GES_TIMELINE_ELEMENT (track->ges_track),
+                                g_strdup_printf (_("Remove %s"), track->name),
+                                NULL, NULL);
+  
+  // GES 타임라인에서 트랙 제거
+  ges_timeline_remove_track (timeline->ges_timeline, track->ges_track);
+  
+  // 트랙 리스트에서 제거
+  timeline->tracks = g_slist_remove (timeline->tracks, track);
+  
+  // 트랙 메모리 해제
+  track_free (track);
+  
+  // 위젯 다시 그리기
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+/**
+ * blouedit_timeline_get_track_count:
+ * @timeline: 타임라인 객체
+ * @track_type: 트랙 유형 (GES_TRACK_TYPE_AUDIO, GES_TRACK_TYPE_VIDEO 등) 또는 0으로 모든 트랙
+ *
+ * 타임라인에 있는 특정 유형의 트랙 수를 반환합니다.
+ *
+ * Returns: 트랙 수
+ */
+gint
+blouedit_timeline_get_track_count (BlouEditTimeline *timeline, GESTrackType track_type)
+{
+  g_return_val_if_fail (BLOUEDIT_IS_TIMELINE (timeline), 0);
+  
+  gint count = 0;
+  
+  for (GSList *t = timeline->tracks; t; t = t->next) {
+    BlouEditTimelineTrack *track = (BlouEditTimelineTrack *)t->data;
+    
+    if (track_type == 0 || ges_track_get_track_type (track->ges_track) == track_type) {
+      count++;
+    }
+  }
+  
+  return count;
+}
+
+/**
+ * blouedit_timeline_get_track_by_index:
+ * @timeline: 타임라인 객체
+ * @track_type: 트랙 유형 (GES_TRACK_TYPE_AUDIO, GES_TRACK_TYPE_VIDEO 등)
+ * @index: 유형 내 인덱스 (0부터 시작)
+ *
+ * 특정 유형 내에서 순서에 맞는 트랙을 반환합니다.
+ *
+ * Returns: 트랙 객체 또는 찾지 못한 경우 NULL
+ */
+BlouEditTimelineTrack *
+blouedit_timeline_get_track_by_index (BlouEditTimeline *timeline, GESTrackType track_type, gint index)
+{
+  g_return_val_if_fail (BLOUEDIT_IS_TIMELINE (timeline), NULL);
+  g_return_val_if_fail (index >= 0, NULL);
+  
+  gint current = 0;
+  
+  for (GSList *t = timeline->tracks; t; t = t->next) {
+    BlouEditTimelineTrack *track = (BlouEditTimelineTrack *)t->data;
+    
+    if (ges_track_get_track_type (track->ges_track) == track_type) {
+      if (current == index) {
+        return track;
+      }
+      current++;
+    }
+  }
+  
+  return NULL;
+}
+
+/**
+ * blouedit_timeline_create_default_tracks:
+ * @timeline: 타임라인 객체
+ *
+ * 타임라인에 기본 트랙 구성(비디오 트랙 1개, 오디오 트랙 1개)을 생성합니다.
+ */
+void
+blouedit_timeline_create_default_tracks (BlouEditTimeline *timeline)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  
+  // 이미 트랙이 있는 경우 생성하지 않음
+  if (g_slist_length (timeline->tracks) > 0) {
+    return;
+  }
+  
+  // 비디오 트랙 생성
+  blouedit_timeline_add_track (timeline, GES_TRACK_TYPE_VIDEO, _("Video 1"));
+  
+  // 오디오 트랙 생성
+  blouedit_timeline_add_track (timeline, GES_TRACK_TYPE_AUDIO, _("Audio 1"));
+}
+
+/**
+ * blouedit_timeline_add_video_track:
+ * @timeline: 타임라인 객체
+ *
+ * 타임라인에 새 비디오 트랙을 추가하는 편의 함수입니다.
+ *
+ * Returns: 새로 생성된 비디오 트랙 객체
+ */
+BlouEditTimelineTrack *
+blouedit_timeline_add_video_track (BlouEditTimeline *timeline)
+{
+  g_return_val_if_fail (BLOUEDIT_IS_TIMELINE (timeline), NULL);
+  
+  // 비디오 트랙 번호 계산
+  int video_track_count = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_VIDEO);
+  gchar *name = g_strdup_printf (_("Video %d"), video_track_count + 1);
+  
+  BlouEditTimelineTrack *track = blouedit_timeline_add_track (timeline, GES_TRACK_TYPE_VIDEO, name);
+  g_free (name);
+  
+  return track;
+}
+
+/**
+ * blouedit_timeline_add_audio_track:
+ * @timeline: 타임라인 객체
+ *
+ * 타임라인에 새 오디오 트랙을 추가하는 편의 함수입니다.
+ *
+ * Returns: 새로 생성된 오디오 트랙 객체
+ */
+BlouEditTimelineTrack *
+blouedit_timeline_add_audio_track (BlouEditTimeline *timeline)
+{
+  g_return_val_if_fail (BLOUEDIT_IS_TIMELINE (timeline), NULL);
+  
+  // 오디오 트랙 번호 계산
+  int audio_track_count = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_AUDIO);
+  gchar *name = g_strdup_printf (_("Audio %d"), audio_track_count + 1);
+  
+  BlouEditTimelineTrack *track = blouedit_timeline_add_track (timeline, GES_TRACK_TYPE_AUDIO, name);
+  g_free (name);
+  
+  return track;
+}
+
+/**
+ * blouedit_timeline_is_track_at_max:
+ * @timeline: 타임라인 객체
+ * @track_type: 트랙 유형 (GES_TRACK_TYPE_AUDIO, GES_TRACK_TYPE_VIDEO 등)
+ *
+ * 특정 트랙 유형이 최대 허용치에 도달했는지 확인합니다.
+ * 현재는 무제한 트랙을 지원하므로 항상 FALSE를 반환합니다.
+ *
+ * Returns: 최대 트랙 수에 도달했으면 TRUE, 아니면 FALSE
+ */
+gboolean
+blouedit_timeline_is_track_at_max (BlouEditTimeline *timeline, GESTrackType track_type)
+{
+  g_return_val_if_fail (BLOUEDIT_IS_TIMELINE (timeline), TRUE);
+  
+  // 무제한 트랙 지원이므로 항상 FALSE 반환
+  return FALSE;
+}
+
+/**
+ * blouedit_timeline_get_track_layer_for_clip:
+ * @timeline: 타임라인 객체
+ * @clip: GES 클립 객체
+ * @track_type: 트랙 유형 (GES_TRACK_TYPE_AUDIO, GES_TRACK_TYPE_VIDEO 등)
+ *
+ * 클립이 특정 트랙 유형에서 사용해야 할 레이어 번호를 반환합니다.
+ * 여러 트랙을 지원하기 위해 클립을 적절한 트랙에 배치하는 데 사용됩니다.
+ *
+ * Returns: 레이어 번호
+ */
+gint
+blouedit_timeline_get_track_layer_for_clip (BlouEditTimeline *timeline, GESClip *clip, GESTrackType track_type)
+{
+  g_return_val_if_fail (BLOUEDIT_IS_TIMELINE (timeline), 0);
+  g_return_val_if_fail (GES_IS_CLIP (clip), 0);
+  
+  // 클립의 현재 레이어 가져오기
+  gint layer = ges_clip_get_layer_priority (clip);
+  
+  // 트랙 유형에 맞는 레이어 번호 계산
+  // 비디오 트랙은 위쪽부터 (낮은 레이어 번호), 오디오 트랙은 아래쪽부터 (높은 레이어 번호)
+  if (track_type == GES_TRACK_TYPE_VIDEO) {
+    return layer;
+  } else if (track_type == GES_TRACK_TYPE_AUDIO) {
+    // 오디오 트랙의 경우 비디오 트랙 수를 감안하여 계산
+    gint video_tracks = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_VIDEO);
+    return video_tracks + layer;
+  }
+  
+  return layer;
+}
+
+/**
+ * blouedit_timeline_get_max_tracks:
+ * @timeline: 타임라인 객체
+ * @track_type: 트랙 유형 (GES_TRACK_TYPE_AUDIO, GES_TRACK_TYPE_VIDEO 등)
+ *
+ * 특정 트랙 유형에 대한 최대 허용 트랙 수를 반환합니다.
+ * 무제한 트랙을 지원하므로 G_MAXINT를 반환합니다.
+ *
+ * Returns: 최대 트랙 수
+ */
+gint
+blouedit_timeline_get_max_tracks (BlouEditTimeline *timeline, GESTrackType track_type)
+{
+  g_return_val_if_fail (BLOUEDIT_IS_TIMELINE (timeline), 0);
+  
+  // 무제한 트랙 지원 (실제로는 시스템 메모리에 따라 제한됨)
+  return G_MAXINT;
+}
+
+/* 타임라인 초기화 시 추가되어야 할 코드
+ * blouedit_timeline_init 함수 수정이 필요합니다.
+ * 아래 코드를 기존 init 함수 내에 추가해야 합니다:
+ *
+ * // 기본 트랙 높이 및 간격 설정
+ * timeline->default_track_height = 80;
+ * timeline->folded_track_height = 20;
+ * timeline->track_spacing = 2;
+ * timeline->track_header_width = 150;
+ *
+ * // 트랙 리스트 초기화
+ * timeline->tracks = NULL;
+ * timeline->selected_track = NULL;
+ *
+ * // 트랙 관련 상태 초기화
+ * timeline->is_resizing_track = FALSE;
+ * timeline->resizing_track = NULL;
+ * timeline->min_track_height = 20;
+ * timeline->max_track_height = 200;
+ * timeline->is_reordering_track = FALSE;
+ * timeline->reordering_track = NULL;
+ *
+ * // 기본 트랙 생성
+ * blouedit_timeline_create_default_tracks (timeline);
+ */
+
+/* GES 타임라인 생성 후 호출되어야 할 코드
+ * 아래 함수가 GES 타임라인 생성 후 호출되어야 합니다:
+ *
+ * // 기존 트랙이 있다면 제거
+ * while (timeline->tracks) {
+ *   BlouEditTimelineTrack *track = (BlouEditTimelineTrack *) timeline->tracks->data;
+ *   blouedit_timeline_remove_track (timeline, track);
+ * }
+ *
+ * // 기본 트랙 생성
+ * blouedit_timeline_create_default_tracks (timeline);
+ */
+
+/**
+ * blouedit_timeline_show_track_controls:
+ * @timeline: 타임라인 객체
+ * @track: 트랙 객체
+ * @x: 컨트롤을 표시할 X 좌표
+ * @y: 컨트롤을 표시할 Y 좌표
+ *
+ * 트랙 컨트롤 팝업 메뉴를 표시합니다.
+ * 트랙을 오른쪽 클릭했을 때 트랙 관련 작업을 수행할 수 있는 메뉴를 제공합니다.
+ */
+void
+blouedit_timeline_show_track_controls (BlouEditTimeline *timeline, BlouEditTimelineTrack *track, gdouble x, gdouble y)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  g_return_if_fail (track != NULL);
+  
+  GtkWidget *menu = gtk_menu_new ();
+  GtkWidget *item;
+  
+  // 트랙 속성 메뉴 항목
+  item = gtk_menu_item_new_with_label (_("Track Properties..."));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_show_track_properties), timeline);
+  g_object_set_data (G_OBJECT (item), "track", track);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 구분선
+  item = gtk_separator_menu_item_new ();
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 트랙 접기/펼치기 메뉴 항목
+  if (track->folded) {
+    item = gtk_menu_item_new_with_label (_("Expand Track"));
+  } else {
+    item = gtk_menu_item_new_with_label (_("Collapse Track"));
+  }
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_toggle_track_folded), timeline);
+  g_object_set_data (G_OBJECT (item), "track", track);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 트랙 높이 리셋 메뉴 항목
+  item = gtk_menu_item_new_with_label (_("Reset Track Height"));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_reset_track_height), timeline);
+  g_object_set_data (G_OBJECT (item), "track", track);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 구분선
+  item = gtk_separator_menu_item_new ();
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 모든 트랙 접기 메뉴 항목
+  item = gtk_menu_item_new_with_label (_("Collapse All Tracks"));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_fold_all_tracks), timeline);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 모든 트랙 펼치기 메뉴 항목
+  item = gtk_menu_item_new_with_label (_("Expand All Tracks"));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_unfold_all_tracks), timeline);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 구분선
+  item = gtk_separator_menu_item_new ();
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 비디오 트랙 추가 메뉴 항목
+  item = gtk_menu_item_new_with_label (_("Add Video Track"));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_add_video_track), timeline);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 오디오 트랙 추가 메뉴 항목
+  item = gtk_menu_item_new_with_label (_("Add Audio Track"));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_add_audio_track), timeline);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 구분선
+  item = gtk_separator_menu_item_new ();
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 트랙 삭제 메뉴 항목
+  item = gtk_menu_item_new_with_label (_("Delete Track"));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_remove_track), timeline);
+  g_object_set_data (G_OBJECT (item), "track", track);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  // 메뉴 표시
+  gtk_widget_show_all (menu);
+  gtk_menu_popup_at_pointer (GTK_MENU (menu), NULL);
+}
+
+/**
+ * blouedit_timeline_show_track_properties:
+ * @timeline: 타임라인 객체
+ *
+ * 트랙 속성 대화상자를 표시합니다.
+ * 트랙 이름, 색상, 높이 등을 설정할 수 있는 대화상자를 표시합니다.
+ */
+void
+blouedit_timeline_show_track_properties (BlouEditTimeline *timeline)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  
+  // 선택된 트랙이 없는 경우 리턴
+  BlouEditTimelineTrack *track = (BlouEditTimelineTrack *) g_object_get_data (G_OBJECT (gtk_get_current_event_widget ()), "track");
+  if (!track) {
+    return;
+  }
+  
+  // 대화상자 생성
+  GtkWidget *dialog = gtk_dialog_new_with_buttons (_("Track Properties"),
+                                                  GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (timeline))),
+                                                  GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                  _("Cancel"), GTK_RESPONSE_CANCEL,
+                                                  _("OK"), GTK_RESPONSE_ACCEPT,
+                                                  NULL);
+  
+  // 대화상자 컨텐츠 영역 가져오기
+  GtkWidget *content_area = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
+  gtk_container_set_border_width (GTK_CONTAINER (content_area), 12);
+  gtk_box_set_spacing (GTK_BOX (content_area), 6);
+  
+  // 그리드 레이아웃 생성
+  GtkWidget *grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
+  gtk_container_add (GTK_CONTAINER (content_area), grid);
+  
+  // 트랙 이름 입력 필드
+  GtkWidget *name_label = gtk_label_new_with_mnemonic (_("_Name:"));
+  gtk_widget_set_halign (name_label, GTK_ALIGN_START);
+  GtkWidget *name_entry = gtk_entry_new ();
+  gtk_entry_set_text (GTK_ENTRY (name_entry), track->name);
+  gtk_label_set_mnemonic_widget (GTK_LABEL (name_label), name_entry);
+  gtk_grid_attach (GTK_GRID (grid), name_label, 0, 0, 1, 1);
+  gtk_grid_attach (GTK_GRID (grid), name_entry, 1, 0, 1, 1);
+  
+  // 트랙 높이 스핀 버튼
+  GtkWidget *height_label = gtk_label_new_with_mnemonic (_("_Height:"));
+  gtk_widget_set_halign (height_label, GTK_ALIGN_START);
+  GtkWidget *height_spin = gtk_spin_button_new_with_range (
+      timeline->min_track_height, timeline->max_track_height, 1);
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (height_spin), track->height);
+  gtk_label_set_mnemonic_widget (GTK_LABEL (height_label), height_spin);
+  gtk_grid_attach (GTK_GRID (grid), height_label, 0, 1, 1, 1);
+  gtk_grid_attach (GTK_GRID (grid), height_spin, 1, 1, 1, 1);
+  
+  // 트랙 색상 선택 버튼
+  GtkWidget *color_label = gtk_label_new_with_mnemonic (_("_Color:"));
+  gtk_widget_set_halign (color_label, GTK_ALIGN_START);
+  GtkWidget *color_button = gtk_color_button_new_with_rgba (&track->color);
+  gtk_label_set_mnemonic_widget (GTK_LABEL (color_label), color_button);
+  gtk_grid_attach (GTK_GRID (grid), color_label, 0, 2, 1, 1);
+  gtk_grid_attach (GTK_GRID (grid), color_button, 1, 2, 1, 1);
+  
+  // 트랙 표시 여부 체크박스
+  GtkWidget *visible_check = gtk_check_button_new_with_mnemonic (_("_Visible"));
+  gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (visible_check), track->visible);
+  gtk_grid_attach (GTK_GRID (grid), visible_check, 0, 3, 2, 1);
+  
+  // 대화상자 표시
+  gtk_widget_show_all (dialog);
+  gint response = gtk_dialog_run (GTK_DIALOG (dialog));
+  
+  // 사용자가 OK 버튼을 클릭한 경우
+  if (response == GTK_RESPONSE_ACCEPT) {
+    // 트랙 이름 업데이트
+    const gchar *new_name = gtk_entry_get_text (GTK_ENTRY (name_entry));
+    if (g_strcmp0 (track->name, new_name) != 0) {
+      g_free (track->name);
+      track->name = g_strdup (new_name);
+    }
+    
+    // 트랙 높이 업데이트
+    gint new_height = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (height_spin));
+    if (track->height != new_height) {
+      blouedit_timeline_set_track_height (timeline, track, new_height);
+    }
+    
+    // 트랙 색상 업데이트
+    GdkRGBA new_color;
+    gtk_color_button_get_rgba (GTK_COLOR_BUTTON (color_button), &new_color);
+    blouedit_timeline_set_track_color (timeline, track, &new_color);
+    
+    // 트랙 표시 여부 업데이트
+    gboolean new_visible = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (visible_check));
+    if (track->visible != new_visible) {
+      blouedit_timeline_set_track_visible (timeline, track, new_visible);
+    }
+    
+    // 위젯 다시 그리기
+    gtk_widget_queue_draw (GTK_WIDGET (timeline));
+  }
+  
+  // 대화상자 파괴
+  gtk_widget_destroy (dialog);
+}
+
+/**
+ * blouedit_timeline_show_add_track_dialog:
+ * @timeline: 타임라인 객체
+ *
+ * 트랙 추가 대화상자를 표시합니다.
+ * 비디오, 오디오 등 다양한 유형의 트랙을 추가할 수 있는 대화상자를 표시합니다.
+ */
+void
+blouedit_timeline_show_add_track_dialog (BlouEditTimeline *timeline)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  
+  // 대화상자 생성
+  GtkWidget *dialog = gtk_dialog_new_with_buttons (_("Add Track"),
+                                                  GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (timeline))),
+                                                  GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                  _("Cancel"), GTK_RESPONSE_CANCEL,
+                                                  _("Add"), GTK_RESPONSE_ACCEPT,
+                                                  NULL);
+  
+  // 대화상자 컨텐츠 영역 가져오기
+  GtkWidget *content_area = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
+  gtk_container_set_border_width (GTK_CONTAINER (content_area), 12);
+  gtk_box_set_spacing (GTK_BOX (content_area), 6);
+  
+  // 그리드 레이아웃 생성
+  GtkWidget *grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
+  gtk_container_add (GTK_CONTAINER (content_area), grid);
+  
+  // 트랙 유형 라디오 버튼
+  GtkWidget *type_label = gtk_label_new (_("Track Type:"));
+  gtk_widget_set_halign (type_label, GTK_ALIGN_START);
+  gtk_grid_attach (GTK_GRID (grid), type_label, 0, 0, 1, 1);
+  
+  GtkWidget *video_radio = gtk_radio_button_new_with_label (NULL, _("Video Track"));
+  gtk_grid_attach (GTK_GRID (grid), video_radio, 1, 0, 1, 1);
+  
+  GtkWidget *audio_radio = gtk_radio_button_new_with_label_from_widget (
+      GTK_RADIO_BUTTON (video_radio), _("Audio Track"));
+  gtk_grid_attach (GTK_GRID (grid), audio_radio, 1, 1, 1, 1);
+  
+  GtkWidget *text_radio = gtk_radio_button_new_with_label_from_widget (
+      GTK_RADIO_BUTTON (video_radio), _("Text Track"));
+  gtk_grid_attach (GTK_GRID (grid), text_radio, 1, 2, 1, 1);
+  
+  // 트랙 이름 입력 필드
+  GtkWidget *name_label = gtk_label_new_with_mnemonic (_("_Name:"));
+  gtk_widget_set_halign (name_label, GTK_ALIGN_START);
+  GtkWidget *name_entry = gtk_entry_new ();
+  
+  // 트랙 유형에 따라 기본 이름 설정
+  g_signal_connect (video_radio, "toggled", G_CALLBACK (on_track_type_toggled), name_entry);
+  g_signal_connect (audio_radio, "toggled", G_CALLBACK (on_track_type_toggled), name_entry);
+  g_signal_connect (text_radio, "toggled", G_CALLBACK (on_track_type_toggled), name_entry);
+  
+  // 초기 기본값 설정 (비디오 트랙 선택 시)
+  gint video_count = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_VIDEO);
+  gchar *default_name = g_strdup_printf (_("Video %d"), video_count + 1);
+  gtk_entry_set_text (GTK_ENTRY (name_entry), default_name);
+  g_free (default_name);
+  
+  gtk_label_set_mnemonic_widget (GTK_LABEL (name_label), name_entry);
+  gtk_grid_attach (GTK_GRID (grid), name_label, 0, 3, 1, 1);
+  gtk_grid_attach (GTK_GRID (grid), name_entry, 1, 3, 1, 1);
+  
+  // 대화상자 표시
+  gtk_widget_show_all (dialog);
+  gint response = gtk_dialog_run (GTK_DIALOG (dialog));
+  
+  // 사용자가 추가 버튼을 클릭한 경우
+  if (response == GTK_RESPONSE_ACCEPT) {
+    const gchar *name = gtk_entry_get_text (GTK_ENTRY (name_entry));
+    GESTrackType track_type;
+    
+    // 선택된 트랙 유형 확인
+    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (audio_radio))) {
+      track_type = GES_TRACK_TYPE_AUDIO;
+    } else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (text_radio))) {
+      track_type = GES_TRACK_TYPE_TEXT;
+    } else {
+      track_type = GES_TRACK_TYPE_VIDEO;
+    }
+    
+    // 트랙 추가
+    blouedit_timeline_add_track (timeline, track_type, name);
+  }
+  
+  // 대화상자 파괴
+  gtk_widget_destroy (dialog);
+}
+
+/**
+ * on_track_type_toggled:
+ * @radio: 토글된 라디오 버튼
+ * @entry: 이름 입력 엔트리
+ *
+ * 트랙 유형 라디오 버튼이 토글되었을 때 호출되는 콜백 함수.
+ * 트랙 유형에 따라 기본 이름을 업데이트합니다.
+ */
+static void
+on_track_type_toggled (GtkToggleButton *radio, GtkWidget *entry)
+{
+  // 활성화된 버튼인 경우에만 처리
+  if (!gtk_toggle_button_get_active (radio)) {
+    return;
+  }
+  
+  const gchar *label = gtk_button_get_label (GTK_BUTTON (radio));
+  
+  // 버튼 라벨에 따라 트랙 타입 판별 및 기본 이름 설정
+  BlouEditTimeline *timeline = BLOUEDIT_TIMELINE (g_object_get_data (G_OBJECT (radio), "timeline"));
+  if (!timeline) {
+    return;
+  }
+  
+  gchar *default_name = NULL;
+  
+  if (g_strcmp0 (label, _("Video Track")) == 0) {
+    gint count = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_VIDEO);
+    default_name = g_strdup_printf (_("Video %d"), count + 1);
+  } else if (g_strcmp0 (label, _("Audio Track")) == 0) {
+    gint count = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_AUDIO);
+    default_name = g_strdup_printf (_("Audio %d"), count + 1);
+  } else if (g_strcmp0 (label, _("Text Track")) == 0) {
+    gint count = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_TEXT);
+    default_name = g_strdup_printf (_("Text %d"), count + 1);
+  }
+  
+  if (default_name) {
+    gtk_entry_set_text (GTK_ENTRY (entry), default_name);
+    g_free (default_name);
+  }
+}
+
+/* Clip selection functions */
+void
+blouedit_timeline_select_clip (BlouEditTimeline *timeline, GESClip *clip, gboolean clear_selection)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  g_return_if_fail (GES_IS_CLIP (clip));
+  
+  /* If requested to clear selection first, remove all current selections */
+  if (clear_selection) {
+    blouedit_timeline_clear_selection (timeline);
+  }
+  
+  /* If clip is already selected, do nothing */
+  if (g_slist_find (timeline->selected_clips, clip))
+    return;
+  
+  /* Add to selected clips list */
+  timeline->selected_clips = g_slist_append (timeline->selected_clips, clip);
+  
+  /* Keep a reference to the clip */
+  g_object_ref (clip);
+  
+  /* Redraw timeline */
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+void
+blouedit_timeline_unselect_clip (BlouEditTimeline *timeline, GESClip *clip)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  g_return_if_fail (GES_IS_CLIP (clip));
+  
+  /* If clip is not selected, do nothing */
+  if (!g_slist_find (timeline->selected_clips, clip))
+    return;
+  
+  /* Remove from selected clips list */
+  timeline->selected_clips = g_slist_remove (timeline->selected_clips, clip);
+  
+  /* Release the reference */
+  g_object_unref (clip);
+  
+  /* Redraw timeline */
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+void
+blouedit_timeline_clear_selection (BlouEditTimeline *timeline)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  
+  /* Release references to all selected clips */
+  g_slist_foreach (timeline->selected_clips, (GFunc) g_object_unref, NULL);
+  
+  /* Free the list */
+  g_slist_free (timeline->selected_clips);
+  timeline->selected_clips = NULL;
+  
+  /* Redraw timeline */
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+void
+blouedit_timeline_select_all_clips (BlouEditTimeline *timeline)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  
+  /* Clear current selection */
+  blouedit_timeline_clear_selection (timeline);
+  
+  /* Find all layers in the timeline */
+  GList *layers = ges_timeline_get_layers (timeline->ges_timeline);
+  GList *layer_item;
+  
+  /* Iterate through all layers */
+  for (layer_item = layers; layer_item != NULL; layer_item = layer_item->next) {
+    GESLayer *layer = GES_LAYER (layer_item->data);
+    GList *clips = ges_layer_get_clips (layer);
+    GList *clip_item;
+    
+    /* Select all clips in this layer */
+    for (clip_item = clips; clip_item != NULL; clip_item = clip_item->next) {
+      GESClip *clip = GES_CLIP (clip_item->data);
+      timeline->selected_clips = g_slist_append (timeline->selected_clips, clip);
+      g_object_ref (clip);
+    }
+    
+    g_list_free (clips);
+  }
+  
+  g_list_free (layers);
+  
+  /* Redraw timeline */
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+void
+blouedit_timeline_select_clips_in_range (BlouEditTimeline *timeline, gint64 start, gint64 end, BlouEditTimelineTrack *track)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  g_return_if_fail (start <= end);
+  
+  /* Find all layers in the timeline */
+  GList *layers = ges_timeline_get_layers (timeline->ges_timeline);
+  GList *layer_item;
+  
+  /* Iterate through all layers */
+  for (layer_item = layers; layer_item != NULL; layer_item = layer_item->next) {
+    GESLayer *layer = GES_LAYER (layer_item->data);
+    GList *clips = ges_layer_get_clips (layer);
+    GList *clip_item;
+    
+    /* Check all clips in this layer */
+    for (clip_item = clips; clip_item != NULL; clip_item = clip_item->next) {
+      GESClip *clip = GES_CLIP (clip_item->data);
+      gint64 clip_start = ges_clip_get_start (clip);
+      gint64 clip_end = clip_start + ges_clip_get_duration (clip);
+      
+      /* Check if clip overlaps with the given range */
+      if ((clip_start >= start && clip_start < end) || 
+          (clip_end > start && clip_end <= end) ||
+          (clip_start <= start && clip_end >= end)) {
+        
+        /* For track-specific selection, check if clip is in the track */
+        if (track != NULL) {
+          /* Check if clip has elements in the specified track */
+          GList *tracks = ges_timeline_get_tracks (timeline->ges_timeline);
+          GList *track_item;
+          gboolean clip_in_track = FALSE;
+          
+          for (track_item = tracks; track_item != NULL; track_item = track_item->next) {
+            GESTrack *ges_track = GES_TRACK (track_item->data);
+            if (ges_track == track->ges_track) {
+              GList *track_elements = ges_clip_get_track_elements (clip);
+              GList *elem_item;
+              
+              for (elem_item = track_elements; elem_item != NULL; elem_item = elem_item->next) {
+                GESTrackElement *element = GES_TRACK_ELEMENT (elem_item->data);
+                if (ges_track_element_get_track (element) == ges_track) {
+                  clip_in_track = TRUE;
+                  break;
+                }
+              }
+              
+              g_list_free (track_elements);
+              if (clip_in_track)
+                break;
+            }
+          }
+          
+          g_list_free (tracks);
+          
+          if (!clip_in_track)
+            continue;  /* Skip this clip if not in specified track */
+        }
+        
+        /* Select the clip */
+        timeline->selected_clips = g_slist_append (timeline->selected_clips, clip);
+        g_object_ref (clip);
+      }
+    }
+    
+    g_list_free (clips);
+  }
+  
+  g_list_free (layers);
+  
+  /* Redraw timeline */
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+gboolean
+blouedit_timeline_is_clip_selected (BlouEditTimeline *timeline, GESClip *clip)
+{
+  g_return_val_if_fail (BLOUEDIT_IS_TIMELINE (timeline), FALSE);
+  g_return_val_if_fail (GES_IS_CLIP (clip), FALSE);
+  
+  return g_slist_find (timeline->selected_clips, clip) != NULL;
+}
+
+/* Helper function to free clip movement info */
+static void
+clip_movement_info_free (BlouEditClipMovementInfo *info)
+{
+  if (info) {
+    g_free (info);
+  }
+}
+
+/* Start moving multiple clips */
+void
+blouedit_timeline_start_moving_multiple_clips (BlouEditTimeline *timeline, gdouble start_x)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  
+  /* Don't do anything if no clips are selected */
+  if (!timeline->selected_clips)
+    return;
+    
+  /* Don't start another operation if already moving clips */
+  if (timeline->is_moving_clip || timeline->is_moving_multiple_clips)
+    return;
+  
+  /* Set up for multiple clip movement */
+  timeline->is_moving_multiple_clips = TRUE;
+  timeline->moving_start_x = start_x;
+  timeline->multi_move_offset = 0;
+  
+  /* Clear any existing movement info */
+  if (timeline->moving_clips_info) {
+    g_slist_free_full (timeline->moving_clips_info, (GDestroyNotify)clip_movement_info_free);
+    timeline->moving_clips_info = NULL;
+  }
+  
+  /* Create movement info for each selected clip */
+  GSList *clip_item;
+  for (clip_item = timeline->selected_clips; clip_item != NULL; clip_item = clip_item->next) {
+    GESClip *clip = GES_CLIP (clip_item->data);
+    
+    /* Skip locked clips */
+    if (blouedit_timeline_is_clip_locked (timeline, clip))
+      continue;
+    
+    /* Create movement info */
+    BlouEditClipMovementInfo *info = g_new (BlouEditClipMovementInfo, 1);
+    info->clip = clip;
+    info->original_start_position = ges_clip_get_start (clip);
+    
+    /* Add to list */
+    timeline->moving_clips_info = g_slist_append (timeline->moving_clips_info, info);
+  }
+  
+  /* If no movable clips, cancel the operation */
+  if (!timeline->moving_clips_info) {
+    timeline->is_moving_multiple_clips = FALSE;
+    return;
+  }
+  
+  /* Record this action for history */
+  blouedit_timeline_begin_group_action (timeline, "Move Multiple Clips");
+  
+  /* Redraw timeline */
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+/* Update position of multiple clips being moved */
+void
+blouedit_timeline_move_multiple_clips_to (BlouEditTimeline *timeline, gdouble x)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  
+  /* Only proceed if we're in multiple clip move mode */
+  if (!timeline->is_moving_multiple_clips || !timeline->moving_clips_info)
+    return;
+  
+  /* Calculate movement in timeline units */
+  double rel_x_start = timeline->moving_start_x - timeline->timeline_start_x;
+  double rel_x_current = x - timeline->timeline_start_x;
+  gint64 offset = (rel_x_current - rel_x_start) / timeline->zoom_level * GST_SECOND;
+  
+  /* Apply snap if enabled */
+  if (timeline->snap_mode != BLOUEDIT_SNAP_NONE) {
+    /* Find the lead clip - the earliest one in the selection */
+    BlouEditClipMovementInfo *earliest_info = NULL;
+    gint64 earliest_pos = G_MAXINT64;
+    
+    GSList *info_item;
+    for (info_item = timeline->moving_clips_info; info_item != NULL; info_item = info_item->next) {
+      BlouEditClipMovementInfo *info = (BlouEditClipMovementInfo *)info_item->data;
+      if (info->original_start_position < earliest_pos) {
+        earliest_pos = info->original_start_position;
+        earliest_info = info;
+      }
+    }
+    
+    if (earliest_info) {
+      /* Calculate target position with offset for the earliest clip */
+      gint64 target_pos = earliest_info->original_start_position + offset;
+      
+      /* Snap this position */
+      gint64 snapped_pos = blouedit_timeline_snap_position (timeline, target_pos);
+      
+      /* Adjust offset to account for snap */
+      offset = offset + (snapped_pos - target_pos);
+    }
+  }
+  
+  /* Store the common offset for all clips */
+  timeline->multi_move_offset = offset;
+  
+  /* Update position of all clips being moved */
+  GSList *info_item;
+  for (info_item = timeline->moving_clips_info; info_item != NULL; info_item = info_item->next) {
+    BlouEditClipMovementInfo *info = (BlouEditClipMovementInfo *)info_item->data;
+    
+    /* Calculate new position */
+    gint64 new_pos = info->original_start_position + offset;
+    
+    /* Ensure we don't go negative */
+    if (new_pos < 0)
+      new_pos = 0;
+    
+    /* Update clip position */
+    if (ges_clip_get_start (info->clip) != new_pos) {
+      ges_timeline_element_set_start (GES_TIMELINE_ELEMENT (info->clip), new_pos);
+    }
+  }
+  
+  /* Redraw timeline */
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+/* End the multiple clip movement operation */
+void
+blouedit_timeline_end_moving_multiple_clips (BlouEditTimeline *timeline)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  
+  /* Only proceed if we're in multiple clip move mode */
+  if (!timeline->is_moving_multiple_clips)
+    return;
+  
+  /* End the group action for history */
+  blouedit_timeline_end_group_action (timeline);
+  
+  /* Clean up */
+  if (timeline->moving_clips_info) {
+    g_slist_free_full (timeline->moving_clips_info, (GDestroyNotify)clip_movement_info_free);
+    timeline->moving_clips_info = NULL;
+  }
+  
+  timeline->is_moving_multiple_clips = FALSE;
+  timeline->multi_move_offset = 0;
+  
+  /* Redraw timeline */
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+/* Snap type menu callback */
+static void
+on_set_snap_mode (GtkMenuItem *menuitem, gpointer user_data)
+{
+  GtkWidget *menu_item = GTK_WIDGET (menuitem);
+  BlouEditTimeline *timeline = g_object_get_data (G_OBJECT (menu_item), "timeline");
+  BlouEditSnapMode mode = (BlouEditSnapMode) GPOINTER_TO_INT (g_object_get_data (G_OBJECT (menu_item), "snap-mode"));
+  
+  if (timeline) {
+    /* Set the snap mode */
+    blouedit_timeline_set_snap_mode (timeline, mode);
+    
+    /* Redraw the timeline */
+    gtk_widget_queue_draw (GTK_WIDGET (timeline));
+  }
+}
+
+/**
+ * blouedit_timeline_show_context_menu:
+ * @timeline: 타임라인 객체
+ * @x: 컨텍스트 메뉴를 표시할 X 좌표
+ * @y: 컨텍스트 메뉴를 표시할 Y 좌표
+ *
+ * 타임라인 컨텍스트 메뉴를 표시합니다.
+ * 타임라인 영역을 오른쪽 클릭했을 때 나타나는 메뉴입니다.
+ * 스냅 모드 선택, 편집 모드 변경 등의 기능을 제공합니다.
+ */
+void
+blouedit_timeline_show_context_menu (BlouEditTimeline *timeline, gdouble x, gdouble y)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  
+  GtkWidget *menu = gtk_menu_new ();
+  GtkWidget *item;
+  GtkWidget *submenu;
+  
+  /* 스냅 설정 메뉴 */
+  submenu = gtk_menu_new ();
+  
+  /* 스냅 비활성화 */
+  item = gtk_radio_menu_item_new_with_label (NULL, _("No Snapping"));
+  if (timeline->snap_mode == BLOUEDIT_SNAP_NONE)
+    gtk_check_menu_item_set_active (GTK_CHECK_MENU_ITEM (item), TRUE);
+  g_object_set_data (G_OBJECT (item), "timeline", timeline);
+  g_object_set_data (G_OBJECT (item), "snap-mode", GINT_TO_POINTER(BLOUEDIT_SNAP_NONE));
+  g_signal_connect (item, "activate", G_CALLBACK (on_set_snap_mode), NULL);
+  gtk_menu_shell_append (GTK_MENU_SHELL (submenu), item);
+  
+  GSList *snap_group = gtk_radio_menu_item_get_group (GTK_RADIO_MENU_ITEM (item));
+  
+  /* 클립에 맞추기 */
+  item = gtk_radio_menu_item_new_with_label (snap_group, _("Snap to Clips"));
+  if (timeline->snap_mode == BLOUEDIT_SNAP_TO_CLIPS)
+    gtk_check_menu_item_set_active (GTK_CHECK_MENU_ITEM (item), TRUE);
+  g_object_set_data (G_OBJECT (item), "timeline", timeline);
+  g_object_set_data (G_OBJECT (item), "snap-mode", GINT_TO_POINTER(BLOUEDIT_SNAP_TO_CLIPS));
+  g_signal_connect (item, "activate", G_CALLBACK (on_set_snap_mode), NULL);
+  gtk_menu_shell_append (GTK_MENU_SHELL (submenu), item);
+  
+  snap_group = gtk_radio_menu_item_get_group (GTK_RADIO_MENU_ITEM (item));
+  
+  /* 마커에 맞추기 */
+  item = gtk_radio_menu_item_new_with_label (snap_group, _("Snap to Markers"));
+  if (timeline->snap_mode == BLOUEDIT_SNAP_TO_MARKERS)
+    gtk_check_menu_item_set_active (GTK_CHECK_MENU_ITEM (item), TRUE);
+  g_object_set_data (G_OBJECT (item), "timeline", timeline);
+  g_object_set_data (G_OBJECT (item), "snap-mode", GINT_TO_POINTER(BLOUEDIT_SNAP_TO_MARKERS));
+  g_signal_connect (item, "activate", G_CALLBACK (on_set_snap_mode), NULL);
+  gtk_menu_shell_append (GTK_MENU_SHELL (submenu), item);
+  
+  snap_group = gtk_radio_menu_item_get_group (GTK_RADIO_MENU_ITEM (item));
+  
+  /* 그리드에 맞추기 */
+  item = gtk_radio_menu_item_new_with_label (snap_group, _("Snap to Grid"));
+  if (timeline->snap_mode == BLOUEDIT_SNAP_TO_GRID)
+    gtk_check_menu_item_set_active (GTK_CHECK_MENU_ITEM (item), TRUE);
+  g_object_set_data (G_OBJECT (item), "timeline", timeline);
+  g_object_set_data (G_OBJECT (item), "snap-mode", GINT_TO_POINTER(BLOUEDIT_SNAP_TO_GRID));
+  g_signal_connect (item, "activate", G_CALLBACK (on_set_snap_mode), NULL);
+  gtk_menu_shell_append (GTK_MENU_SHELL (submenu), item);
+  
+  snap_group = gtk_radio_menu_item_get_group (GTK_RADIO_MENU_ITEM (item));
+  
+  /* 모든 요소에 맞추기 */
+  item = gtk_radio_menu_item_new_with_label (snap_group, _("Snap to All"));
+  if (timeline->snap_mode == BLOUEDIT_SNAP_ALL)
+    gtk_check_menu_item_set_active (GTK_CHECK_MENU_ITEM (item), TRUE);
+  g_object_set_data (G_OBJECT (item), "timeline", timeline);
+  g_object_set_data (G_OBJECT (item), "snap-mode", GINT_TO_POINTER(BLOUEDIT_SNAP_ALL));
+  g_signal_connect (item, "activate", G_CALLBACK (on_set_snap_mode), NULL);
+  gtk_menu_shell_append (GTK_MENU_SHELL (submenu), item);
+  
+  /* 스냅 설정 메뉴 항목 */
+  item = gtk_menu_item_new_with_label (_("Snap Settings"));
+  gtk_menu_item_set_submenu (GTK_MENU_ITEM (item), submenu);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  /* 구분선 */
+  item = gtk_separator_menu_item_new ();
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  /* 타임라인 히스토리 */
+  item = gtk_menu_item_new_with_label (_("Timeline History..."));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_show_history_dialog), timeline);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  /* 메뉴 표시 */
+  gtk_widget_show_all (menu);
+  gtk_menu_popup_at_pointer (GTK_MENU (menu), NULL);
 }

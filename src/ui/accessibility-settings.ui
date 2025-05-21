@@ -1,0 +1,574 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk+" version="3.20"/>
+  <object class="GtkNotebook" id="accessibility_notebook">
+    <property name="visible">True</property>
+    <property name="can_focus">True</property>
+    <property name="margin">10</property>
+    
+    <!-- General Accessibility Page -->
+    <child>
+      <object class="GtkBox">
+        <property name="visible">True</property>
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin">10</property>
+
+        <child>
+          <object class="GtkLabel">
+            <property name="visible">True</property>
+            <property name="label" translatable="yes">Enable or disable accessibility features</property>
+            <property name="xalign">0</property>
+            <attributes>
+              <attribute name="weight" value="bold"/>
+            </attributes>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkSeparator">
+            <property name="visible">True</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkCheckButton" id="high_contrast_toggle">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="label" translatable="yes">High Contrast Theme</property>
+            <property name="margin_top">6</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkBox">
+            <property name="visible">True</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">10</property>
+            <property name="margin_start">20</property>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Theme:</property>
+                <property name="xalign">0</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="high_contrast_theme_combo">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <items>
+                  <item translatable="yes">High Contrast Dark</item>
+                  <item translatable="yes">High Contrast Light</item>
+                  <item translatable="yes">Yellow on Black</item>
+                  <item translatable="yes">Black on Yellow</item>
+                </items>
+              </object>
+            </child>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkCheckButton" id="large_text_toggle">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="label" translatable="yes">Large Text</property>
+            <property name="margin_top">6</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkBox">
+            <property name="visible">True</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">10</property>
+            <property name="margin_start">20</property>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Scale:</property>
+                <property name="xalign">0</property>
+                <property name="width_chars">6</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkScale" id="text_scale_slider">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="adjustment">
+                  <object class="GtkAdjustment">
+                    <property name="lower">1.0</property>
+                    <property name="upper">2.0</property>
+                    <property name="value">1.0</property>
+                    <property name="step_increment">0.1</property>
+                    <property name="page_increment">0.2</property>
+                  </object>
+                </property>
+                <property name="hexpand">True</property>
+                <property name="digits">1</property>
+                <property name="value_pos">right</property>
+                <marks>
+                  <mark value="1.0" position="bottom">1.0x</mark>
+                  <mark value="1.5" position="bottom">1.5x</mark>
+                  <mark value="2.0" position="bottom">2.0x</mark>
+                </marks>
+              </object>
+            </child>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkCheckButton" id="screen_reader_toggle">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="label" translatable="yes">Screen Reader Compatibility</property>
+            <property name="margin_top">6</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkBox">
+            <property name="visible">True</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">10</property>
+            <property name="margin_start">20</property>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Verbosity:</property>
+                <property name="xalign">0</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="screen_reader_combo">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <items>
+                  <item translatable="yes">Minimal</item>
+                  <item translatable="yes">Standard</item>
+                  <item translatable="yes">Verbose</item>
+                  <item translatable="yes">Debug</item>
+                </items>
+              </object>
+            </child>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkCheckButton" id="keyboard_nav_toggle">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="label" translatable="yes">Enhanced Keyboard Navigation</property>
+            <property name="margin_top">6</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkBox">
+            <property name="visible">True</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">10</property>
+            <property name="margin_start">20</property>
+            <child>
+              <object class="GtkCheckButton" id="keyboard_focus_check">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="label" translatable="yes">Show keyboard focus indicators</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkCheckButton" id="color_blind_toggle">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="label" translatable="yes">Color Blind Mode</property>
+            <property name="margin_top">6</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkBox">
+            <property name="visible">True</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">10</property>
+            <property name="margin_start">20</property>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Type:</property>
+                <property name="xalign">0</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="color_blind_combo">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <items>
+                  <item translatable="yes">Protanopia (Red-Blind)</item>
+                  <item translatable="yes">Deuteranopia (Green-Blind)</item>
+                  <item translatable="yes">Tritanopia (Blue-Blind)</item>
+                  <item translatable="yes">Achromatopsia (Monochrome)</item>
+                </items>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child type="tab">
+      <object class="GtkLabel">
+        <property name="visible">True</property>
+        <property name="label" translatable="yes">General</property>
+      </object>
+    </child>
+    
+    <!-- Motion & Animation Page -->
+    <child>
+      <object class="GtkBox">
+        <property name="visible">True</property>
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin">10</property>
+        
+        <child>
+          <object class="GtkLabel">
+            <property name="visible">True</property>
+            <property name="label" translatable="yes">Motion and Animation Settings</property>
+            <property name="xalign">0</property>
+            <attributes>
+              <attribute name="weight" value="bold"/>
+            </attributes>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkSeparator">
+            <property name="visible">True</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkCheckButton" id="reduced_motion_toggle">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="label" translatable="yes">Reduced Motion</property>
+            <property name="margin_top">6</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkBox">
+            <property name="visible">True</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">10</property>
+            <property name="margin_start">20</property>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Level:</property>
+                <property name="xalign">0</property>
+                <property name="width_chars">6</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkScale" id="reduced_motion_slider">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="adjustment">
+                  <object class="GtkAdjustment">
+                    <property name="lower">0</property>
+                    <property name="upper">100</property>
+                    <property name="value">0</property>
+                    <property name="step_increment">10</property>
+                    <property name="page_increment">20</property>
+                  </object>
+                </property>
+                <property name="hexpand">True</property>
+                <property name="digits">0</property>
+                <property name="value_pos">right</property>
+                <marks>
+                  <mark value="0" position="bottom">None</mark>
+                  <mark value="50" position="bottom">Medium</mark>
+                  <mark value="100" position="bottom">Maximum</mark>
+                </marks>
+              </object>
+            </child>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkCheckButton" id="audio_visual_toggle">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="label" translatable="yes">Audio Visualization for Hearing Impaired</property>
+            <property name="margin_top">6</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkFrame" id="audio_visual_frame">
+            <property name="visible">True</property>
+            <property name="can_focus">False</property>
+            <property name="label_xalign">0</property>
+            <property name="shadow_type">none</property>
+            <property name="margin_start">20</property>
+            <property name="margin_top">6</property>
+            <child>
+              <object class="GtkBox">
+                <property name="visible">True</property>
+                <property name="orientation">vertical</property>
+                <property name="margin">10</property>
+                <property name="spacing">6</property>
+                <child>
+                  <object class="GtkCheckButton" id="show_waveforms_check">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="label" translatable="yes">Show enhanced waveforms</property>
+                    <property name="active">TRUE</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="show_captions_check">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="label" translatable="yes">Always show captions when available</property>
+                    <property name="active">TRUE</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="visual_alerts_check">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="label" translatable="yes">Visual alerts for audio events</property>
+                    <property name="active">TRUE</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child type="label_item">
+              <placeholder/>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child type="tab">
+      <object class="GtkLabel">
+        <property name="visible">True</property>
+        <property name="label" translatable="yes">Motion &amp; Animation</property>
+      </object>
+    </child>
+    
+    <!-- Keyboard Shortcuts Page -->
+    <child>
+      <object class="GtkBox">
+        <property name="visible">True</property>
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin">10</property>
+        
+        <child>
+          <object class="GtkLabel">
+            <property name="visible">True</property>
+            <property name="label" translatable="yes">Accessibility Keyboard Shortcuts</property>
+            <property name="xalign">0</property>
+            <attributes>
+              <attribute name="weight" value="bold"/>
+            </attributes>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkSeparator">
+            <property name="visible">True</property>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkScrolledWindow">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="shadow_type">in</property>
+            <property name="vexpand">True</property>
+            <child>
+              <object class="GtkTreeView" id="shortcuts_treeview">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="headers_visible">True</property>
+                <child internal-child="selection">
+                  <object class="GtkTreeSelection"/>
+                </child>
+                <child>
+                  <object class="GtkTreeViewColumn">
+                    <property name="title" translatable="yes">Shortcut</property>
+                    <property name="min_width">150</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkTreeViewColumn">
+                    <property name="title" translatable="yes">Description</property>
+                    <property name="expand">True</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkLabel">
+            <property name="visible">True</property>
+            <property name="label" translatable="yes">Common Accessibility Shortcuts:</property>
+            <property name="xalign">0</property>
+            <property name="margin_top">10</property>
+            <attributes>
+              <attribute name="weight" value="bold"/>
+            </attributes>
+          </object>
+        </child>
+        
+        <child>
+          <object class="GtkGrid">
+            <property name="visible">True</property>
+            <property name="row_spacing">4</property>
+            <property name="column_spacing">12</property>
+            <property name="margin_start">10</property>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Ctrl+Alt+A</property>
+                <property name="xalign">0</property>
+                <attributes>
+                  <attribute name="font-desc" value="Monospace"/>
+                </attributes>
+              </object>
+              <packing>
+                <property name="left_attach">0</property>
+                <property name="top_attach">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Open accessibility settings</property>
+                <property name="xalign">0</property>
+              </object>
+              <packing>
+                <property name="left_attach">1</property>
+                <property name="top_attach">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Ctrl+Plus</property>
+                <property name="xalign">0</property>
+                <attributes>
+                  <attribute name="font-desc" value="Monospace"/>
+                </attributes>
+              </object>
+              <packing>
+                <property name="left_attach">0</property>
+                <property name="top_attach">1</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Increase text size</property>
+                <property name="xalign">0</property>
+              </object>
+              <packing>
+                <property name="left_attach">1</property>
+                <property name="top_attach">1</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Ctrl+Minus</property>
+                <property name="xalign">0</property>
+                <attributes>
+                  <attribute name="font-desc" value="Monospace"/>
+                </attributes>
+              </object>
+              <packing>
+                <property name="left_attach">0</property>
+                <property name="top_attach">2</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Decrease text size</property>
+                <property name="xalign">0</property>
+              </object>
+              <packing>
+                <property name="left_attach">1</property>
+                <property name="top_attach">2</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Ctrl+Alt+H</property>
+                <property name="xalign">0</property>
+                <attributes>
+                  <attribute name="font-desc" value="Monospace"/>
+                </attributes>
+              </object>
+              <packing>
+                <property name="left_attach">0</property>
+                <property name="top_attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Toggle high contrast mode</property>
+                <property name="xalign">0</property>
+              </object>
+              <packing>
+                <property name="left_attach">1</property>
+                <property name="top_attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">F1</property>
+                <property name="xalign">0</property>
+                <attributes>
+                  <attribute name="font-desc" value="Monospace"/>
+                </attributes>
+              </object>
+              <packing>
+                <property name="left_attach">0</property>
+                <property name="top_attach">4</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">Speak current state (with screen reader)</property>
+                <property name="xalign">0</property>
+              </object>
+              <packing>
+                <property name="left_attach">1</property>
+                <property name="top_attach">4</property>
+              </packing>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child type="tab">
+      <object class="GtkLabel">
+        <property name="visible">True</property>
+        <property name="label" translatable="yes">Shortcuts</property>
+      </object>
+    </child>
+  </object>
+</interface> 

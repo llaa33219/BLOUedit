@@ -241,8 +241,11 @@ static void on_clip_drag_update(GtkGestureDrag *gesture, double offset_x, double
         return;
     }
     
-    // 마진 값 계산 (타임라인에서의 위치)
-    int new_margin = MAX(0, clip->start_position / 50 + (int)offset_x);
+    // 타임라인 스케일 값 계산 (픽셀당 시간)
+    int scale = app->timeline_scale_value > 0 ? app->timeline_scale_value : 50;
+    
+    // 마진 값 계산 (타임라인에서의 위치), 직접 오프셋 적용
+    int new_margin = MAX(0, clip->start_position / scale + (int)offset_x);
     
     // UI 업데이트
     gtk_widget_set_margin_start(clip->widget, new_margin);
@@ -265,8 +268,11 @@ static void on_clip_drag_end(GtkGestureDrag *gesture, double offset_x, double of
         return;
     }
     
-    // 새 위치 계산 및 저장
-    int new_position = MAX(0, clip->start_position + (int)(offset_x * 50));
+    // 타임라인 스케일 값 계산 (픽셀당 시간)
+    int scale = app->timeline_scale_value > 0 ? app->timeline_scale_value : 50;
+    
+    // 새 위치 계산 및 저장 - 드래그 업데이트와 동일한 방식 사용
+    int new_position = MAX(0, clip->start_position + (int)(offset_x * scale));
     clip->start_position = new_position;
     
     g_print("클립 드래그 종료: %s, 새 위치: %d\n", clip->display_name, new_position);
