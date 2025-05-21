@@ -64,6 +64,8 @@ blouedit_window_class_init (BlouEditWindowClass *klass)
 // Add these function prototypes
 static void on_proxy_settings_action (GSimpleAction *action, GVariant *parameter, gpointer user_data);
 static void on_performance_mode_action (GSimpleAction *action, GVariant *parameter, gpointer user_data);
+static void on_add_track_action (GSimpleAction *action, GVariant *parameter, gpointer user_data);
+static void on_manage_tracks_action (GSimpleAction *action, GVariant *parameter, gpointer user_data);
 
 static void
 blouedit_window_init (BlouEditWindow *self)
@@ -136,6 +138,9 @@ blouedit_window_init (BlouEditWindow *self)
     { "adjustment-layers", NULL, NULL, NULL, NULL },
     { "quick-split", NULL, NULL, NULL, NULL },
     { "keyboard-shortcuts", NULL, NULL, NULL, NULL },
+    // Timeline actions
+    { "add-track", on_add_track_action, NULL, NULL, NULL },
+    { "manage-tracks", on_manage_tracks_action, NULL, NULL, NULL },
     // Performance actions
     { "proxy-settings", on_proxy_settings_action, NULL, NULL, NULL },
     { "performance-mode", on_performance_mode_action, NULL, NULL, NULL },
@@ -207,6 +212,72 @@ on_performance_mode_action (GSimpleAction *action, GVariant *parameter, gpointer
   
   if (timeline) {
     blouedit_timeline_show_performance_settings_dialog (timeline);
+  } else {
+    // Show an error message if the timeline is not available
+    GtkWidget *dialog = gtk_message_dialog_new (GTK_WINDOW (window),
+                                              GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                              GTK_MESSAGE_ERROR,
+                                              GTK_BUTTONS_CLOSE,
+                                              "Unable to access timeline. Please open a project first.");
+    gtk_dialog_run (GTK_DIALOG (dialog));
+    gtk_widget_destroy (dialog);
+  }
+}
+
+static void
+on_add_track_action (GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  BlouEditWindow *window = BLOUEDIT_WINDOW (user_data);
+  BlouEditTimeline *timeline = NULL;
+  
+  // Get the active timeline from the window
+  // This is a simplified implementation - you might need to get the actual timeline widget
+  // from your UI, depending on your application structure
+  GtkWidget *editor_view = gtk_widget_get_parent(window->content_box);
+  if (editor_view) {
+    // Assuming the timeline is somehow accessible from the editor view
+    // This would need to be adapted to your actual application structure
+    GtkScrolledWindow *timeline_scroll = GTK_SCROLLED_WINDOW(gtk_widget_get_last_child(window->content_box));
+    if (timeline_scroll) {
+      timeline = BLOUEDIT_TIMELINE(gtk_scrolled_window_get_child(timeline_scroll));
+    }
+  }
+  
+  if (timeline) {
+    blouedit_timeline_show_add_track_dialog(timeline);
+  } else {
+    // Show an error message if the timeline is not available
+    GtkWidget *dialog = gtk_message_dialog_new (GTK_WINDOW (window),
+                                              GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                              GTK_MESSAGE_ERROR,
+                                              GTK_BUTTONS_CLOSE,
+                                              "Unable to access timeline. Please open a project first.");
+    gtk_dialog_run (GTK_DIALOG (dialog));
+    gtk_widget_destroy (dialog);
+  }
+}
+
+static void
+on_manage_tracks_action (GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  BlouEditWindow *window = BLOUEDIT_WINDOW (user_data);
+  BlouEditTimeline *timeline = NULL;
+  
+  // Get the active timeline from the window
+  // This is a simplified implementation - you might need to get the actual timeline widget
+  // from your UI, depending on your application structure
+  GtkWidget *editor_view = gtk_widget_get_parent(window->content_box);
+  if (editor_view) {
+    // Assuming the timeline is somehow accessible from the editor view
+    // This would need to be adapted to your actual application structure
+    GtkScrolledWindow *timeline_scroll = GTK_SCROLLED_WINDOW(gtk_widget_get_last_child(window->content_box));
+    if (timeline_scroll) {
+      timeline = BLOUEDIT_TIMELINE(gtk_scrolled_window_get_child(timeline_scroll));
+    }
+  }
+  
+  if (timeline) {
+    blouedit_timeline_show_track_properties(timeline);
   } else {
     // Show an error message if the timeline is not available
     GtkWidget *dialog = gtk_message_dialog_new (GTK_WINDOW (window),

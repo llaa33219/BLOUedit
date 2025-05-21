@@ -6301,6 +6301,20 @@ blouedit_timeline_show_context_menu (BlouEditTimeline *timeline, gdouble x, gdou
   g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_show_history_dialog), timeline);
   gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
   
+  /* 구분선 */
+  item = gtk_separator_menu_item_new ();
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  /* 트랙 추가 */
+  item = gtk_menu_item_new_with_label (_("Add Track..."));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_show_add_track_dialog), timeline);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  /* 트랙 관리 */
+  item = gtk_menu_item_new_with_label (_("Manage Tracks..."));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_show_track_properties), timeline);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
   /* 메뉴 표시 */
   gtk_widget_show_all (menu);
   gtk_menu_popup_at_pointer (GTK_MENU (menu), NULL);

@@ -195,6 +195,25 @@
                                     <property name="tooltip-text" translatable="yes">Add Text</property>
                                   </object>
                                 </child>
+                                <child>
+                                  <object class="GtkSeparator">
+                                    <property name="orientation">vertical</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="label" translatable="yes">Add Track</property>
+                                    <property name="tooltip-text" translatable="yes">Add New Track</property>
+                                    <property name="action-name">win.add-track</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="label" translatable="yes">Manage Tracks</property>
+                                    <property name="tooltip-text" translatable="yes">Manage Timeline Tracks</property>
+                                    <property name="action-name">win.manage-tracks</property>
+                                  </object>
+                                </child>
                               </object>
                             </child>
                             <child>
