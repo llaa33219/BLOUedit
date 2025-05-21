@@ -130,6 +130,8 @@ static void create_export_pipeline(BlouEditApp *app, const char *output_file);
 static void on_pad_added(GstElement *element, GstPad *pad, gpointer data);
 static void add_timeline_track(BlouEditApp *app);
 static void on_add_track_clicked(GtkButton *button, gpointer user_data);
+static void on_manage_tracks_clicked(GtkButton *button, gpointer user_data);
+static void show_track_properties_dialog(BlouEditApp *app);
 
 // 클립 생성자 함수
 static TimelineClip* create_timeline_clip(BlouEditApp *app, const char *filename, int track) {
@@ -1202,6 +1204,74 @@ static void on_add_track_clicked(GtkButton *button, gpointer user_data) {
     add_timeline_track(app);
 }
 
+// 트랙 관리 함수 구현 (on_add_track_clicked 함수 아래, 약 1206줄 부근)
+static void on_manage_tracks_clicked(GtkButton *button, gpointer user_data) {
+    BlouEditApp *app = (BlouEditApp *)user_data;
+    if (!app) {
+        g_print("Error: App instance is null in on_manage_tracks_clicked\n");
+        return;
+    }
+    
+    show_track_properties_dialog(app);
+}
+
+// 트랙 속성 대화상자 표시
+static void show_track_properties_dialog(BlouEditApp *app) {
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(
+        "트랙 관리",
+        GTK_WINDOW(app->main_window),
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        "닫기", GTK_RESPONSE_CLOSE,
+        NULL
+    );
+    
+    // 대화상자 컨텐츠 영역 가져오기
+    GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    gtk_widget_set_margin_start(content_area, 12);
+    gtk_widget_set_margin_end(content_area, 12);
+    gtk_widget_set_margin_top(content_area, 12);
+    gtk_widget_set_margin_bottom(content_area, 12);
+    
+    // 트랙 리스트
+    GtkWidget *tracks_list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    
+    // 트랙 정보 및 컨트롤
+    for (int i = 0; i < app->track_count; i++) {
+        GtkWidget *track_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+        
+        // 트랙 이름
+        char track_name[50];
+        g_snprintf(track_name, sizeof(track_name), "트랙 %d", i + 1);
+        
+        GtkWidget *label = gtk_label_new(track_name);
+        gtk_widget_set_hexpand(label, TRUE);
+        gtk_widget_set_halign(label, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(track_row), label);
+        
+        // 트랙 삭제 버튼 (첫 번째 트랙은 삭제 불가)
+        if (i > 0) {
+            GtkWidget *delete_btn = gtk_button_new_from_icon_name("edit-delete");
+            gtk_widget_set_tooltip_text(delete_btn, "트랙 삭제");
+            g_object_set_data(G_OBJECT(delete_btn), "track-index", GINT_TO_POINTER(i));
+            // 실제 삭제 기능은 구현하지 않았음
+            gtk_box_append(GTK_BOX(track_row), delete_btn);
+        }
+        
+        gtk_box_append(GTK_BOX(tracks_list), track_row);
+    }
+    
+    gtk_box_append(GTK_BOX(content_area), tracks_list);
+    
+    // 대화상자 크기 설정
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 400, 300);
+    
+    // 대화상자 표시
+    gtk_widget_show(dialog);
+    
+    // 응답 시그널 연결
+    g_signal_connect(dialog, "response", G_CALLBACK(on_dialog_response), NULL);
+}
+
 // 애플리케이션 활성화 함수
 static void activate(GtkApplication *app, gpointer user_data) {
     g_print("Activating application...\n");
@@ -1531,7 +1601,19 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_set_margin_top(blouedit_app->add_track_button, 6);
     g_signal_connect(blouedit_app->add_track_button, "clicked", 
                      G_CALLBACK(on_add_track_clicked), blouedit_app);
-    gtk_box_append(GTK_BOX(tracks_box), blouedit_app->add_track_button);
+                     
+    // 트랙 관리 버튼
+    GtkWidget *manage_tracks_button = gtk_button_new_with_label("트랙 관리");
+    gtk_widget_set_margin_top(manage_tracks_button, 6);
+    gtk_widget_set_margin_start(manage_tracks_button, 6);
+    g_signal_connect(manage_tracks_button, "clicked", 
+                     G_CALLBACK(on_manage_tracks_clicked), blouedit_app);
+    
+    // 버튼을 수평 상자에 배치
+    GtkWidget *track_buttons_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(track_buttons_box), blouedit_app->add_track_button);
+    gtk_box_append(GTK_BOX(track_buttons_box), manage_tracks_button);
+    gtk_box_append(GTK_BOX(tracks_box), track_buttons_box);
     
     gtk_box_append(GTK_BOX(blouedit_app->timeline), tracks_box);
     
