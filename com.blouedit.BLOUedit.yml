@@ -48,7 +48,11 @@ modules:
       - chmod 644 blouedit.c
       - cc -o blouedit blouedit.c `pkg-config --cflags --libs gtk4 gstreamer-1.0 gstreamer-video-1.0 gstreamer-pbutils-1.0`
       - chmod 755 blouedit
-      - install -D -m 0755 blouedit /app/bin/blouedit
+      - mkdir -p /app/bin
+      - cp -p blouedit /app/bin/
+      - chmod 755 /app/bin/blouedit
+      - ls -la /app/bin/blouedit
+      - install -m 755 postinstall-hook.sh /app/bin/
       - mkdir -p /app/lib/dri
       - mkdir -p /app/share/runtime/locale
       - mkdir -p /app/etc/fonts
@@ -98,6 +102,13 @@ modules:
     sources:
       - type: file
         path: blouedit.c
+      - type: script
+        dest-filename: postinstall-hook.sh
+        commands:
+          - '#!/bin/sh'
+          - echo "Post-install: Setting executable permissions on blouedit"
+          - chmod 755 /app/bin/blouedit
+          - ls -la /app/bin/blouedit
       - type: script
         dest-filename: generate-icon.sh
         commands:

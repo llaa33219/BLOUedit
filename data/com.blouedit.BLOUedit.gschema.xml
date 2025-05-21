@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="com.blouedit.BLOUedit" path="/com/blouedit/BLOUedit/">
+    <!-- Theme settings -->
+    <key name="color-scheme" enum="com.blouedit.BLOUedit.ColorScheme">
+      <default>'system'</default>
+      <summary>Color scheme</summary>
+      <description>Color scheme preference (light, dark, or system)</description>
+    </key>
+    <key name="primary-color" type="s">
+      <default>'#3584e4'</default>
+      <summary>Primary color</summary>
+      <description>Primary color for the application UI</description>
+    </key>
+    <key name="accent-color" type="s">
+      <default>'#26a269'</default>
+      <summary>Accent color</summary>
+      <description>Accent color for the application UI</description>
+    </key>
+    <key name="background-color" type="s">
+      <default>'inherit'</default>
+      <summary>Background color</summary>
+      <description>Background color for the application UI</description>
+    </key>
+    <key name="text-color" type="s">
+      <default>'inherit'</default>
+      <summary>Text color</summary>
+      <description>Text color for the application UI</description>
+    </key>
+    
+    <!-- Timeline settings -->
+    <key name="timeline-zoom-level" type="d">
+      <default>1.0</default>
+      <summary>Timeline zoom level</summary>
+      <description>Zoom level for the timeline</description>
+    </key>
+    <key name="timeline-snap-to-clips" type="b">
+      <default>true</default>
+      <summary>Snap to clips</summary>
+      <description>Whether clips snap to other clips</description>
+    </key>
+    <key name="timeline-snap-to-markers" type="b">
+      <default>true</default>
+      <summary>Snap to markers</summary>
+      <description>Whether clips snap to markers</description>
+    </key>
+    <key name="timeline-snap-to-playhead" type="b">
+      <default>true</default>
+      <summary>Snap to playhead</summary>
+      <description>Whether clips snap to the playhead</description>
+    </key>
+    <key name="timeline-snap-to-grid" type="b">
+      <default>false</default>
+      <summary>Snap to grid</summary>
+      <description>Whether clips snap to the grid</description>
+    </key>
+    <key name="timeline-autoscroll" type="b">
+      <default>true</default>
+      <summary>Timeline autoscroll</summary>
+      <description>Whether the timeline should autoscroll during playback</description>
+    </key>
+    <key name="timeline-edit-mode" type="s">
+      <default>'normal'</default>
+      <summary>Timeline edit mode</summary>
+      <description>The timeline editing mode (normal, ripple, roll, slip, slide)</description>
+    </key>
+    
+    <!-- Preview settings -->
+    <key name="preview-resolution" type="i">
+      <default>100</default>
+      <summary>Preview resolution percentage</summary>
+      <description>Resolution percentage for the preview (25, 50, 75, 100)</description>
+    </key>
+    <key name="preview-show-grid" type="b">
+      <default>false</default>
+      <summary>Show grid</summary>
+      <description>Whether to show grid on the preview</description>
+    </key>
+    <key name="preview-show-safe-zones" type="b">
+      <default>false</default>
+      <summary>Show safe zones</summary>
+      <description>Whether to show safe zones on the preview</description>
+    </key>
+    <key name="preview-hardware-acceleration" type="b">
+      <default>true</default>
+      <summary>Use hardware acceleration</summary>
+      <description>Whether to use hardware acceleration for preview</description>
+    </key>
+    <key name="preview-cache-type" type="s">
+      <default>'ram'</default>
+      <summary>Preview cache type</summary>
+      <description>Type of cache to use for preview (ram or disk)</description>
+    </key>
+    <key name="preview-cache-size" type="i">
+      <default>512</default>
+      <summary>Preview cache size</summary>
+      <description>Size of the preview cache in megabytes</description>
+    </key>
+    
+    <!-- User interface settings -->
+    <key name="ui-touch-gestures" type="b">
+      <default>true</default>
+      <summary>Touch gestures</summary>
+      <description>Whether to enable touch gestures</description>
+    </key>
+    <key name="ui-workspace-layout" type="s">
+      <default>'standard'</default>
+      <summary>Workspace layout</summary>
+      <description>The workspace layout (standard, compact, dual-monitor)</description>
+    </key>
+    <key name="ui-language" type="s">
+      <default>''</default>
+      <summary>UI language</summary>
+      <description>The language for the user interface (empty for system default)</description>
+    </key>
+    <key name="ui-accessibility-enabled" type="b">
+      <default>false</default>
+      <summary>Accessibility features</summary>
+      <description>Whether to enable enhanced accessibility features</description>
+    </key>
+    <key name="ui-high-contrast" type="b">
+      <default>false</default>
+      <summary>High contrast mode</summary>
+      <description>Whether to use high contrast mode for better visibility</description>
+    </key>
+    
+    <!-- Export settings -->
+    <key name="export-default-format" type="s">
+      <default>'mp4'</default>
+      <summary>Default export format</summary>
+      <description>Default file format for exporting</description>
+    </key>
+    <key name="export-default-quality" type="i">
+      <default>90</default>
+      <summary>Default export quality</summary>
+      <description>Default quality (1-100) for exporting</description>
+    </key>
+    <key name="export-use-hardware-acceleration" type="b">
+      <default>true</default>
+      <summary>Use hardware acceleration for export</summary>
+      <description>Whether to use hardware acceleration when exporting</description>
+    </key>
+  </schema>
+  
+  <enum id="com.blouedit.BLOUedit.ColorScheme">
+    <value nick="light" value="0"/>
+    <value nick="dark" value="1"/>
+    <value nick="system" value="2"/>
+  </enum>
+</schemalist> 

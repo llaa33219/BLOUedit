@@ -178,6 +178,18 @@
                                   </object>
                                 </child>
                                 <child>
+                                  <object class="GtkSeparator">
+                                    <property name="orientation">vertical</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="label" translatable="yes">Proxy</property>
+                                    <property name="tooltip-text" translatable="yes">Proxy Workflow Settings</property>
+                                    <property name="action-name">win.proxy-settings</property>
+                                  </object>
+                                </child>
+                                <child>
                                   <object class="GtkButton">
                                     <property name="label" translatable="yes">Text</property>
                                     <property name="tooltip-text" translatable="yes">Add Text</property>
@@ -585,6 +597,14 @@
       <item>
         <attribute name="label" translatable="yes">_Preferences</attribute>
         <attribute name="action">app.preferences</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Proxy Settings</attribute>
+        <attribute name="action">win.proxy-settings</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Performance Mode</attribute>
+        <attribute name="action">win.performance-mode</attribute>
       </item>
     </section>
     <section>

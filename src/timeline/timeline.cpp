@@ -1882,7 +1882,43 @@ blouedit_timeline_handle_button_press (BlouEditTimeline *timeline, GdkEventButto
         blouedit_timeline_select_clip (timeline, clip, !(event->state & GDK_SHIFT_MASK));
       }
       
-      /* TODO: Show clip context menu */
+      /* Show clip context menu */
+      GtkWidget *menu = gtk_menu_new ();
+      GtkWidget *item;
+      
+      /* Cut */
+      item = gtk_menu_item_new_with_label (_("Cut"));
+      g_object_set_data (G_OBJECT (item), "timeline", timeline);
+      g_object_set_data (G_OBJECT (item), "clip", clip);
+      gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+      
+      /* Copy */
+      item = gtk_menu_item_new_with_label (_("Copy"));
+      g_object_set_data (G_OBJECT (item), "timeline", timeline);
+      g_object_set_data (G_OBJECT (item), "clip", clip);
+      gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+      
+      /* Delete */
+      item = gtk_menu_item_new_with_label (_("Delete"));
+      g_object_set_data (G_OBJECT (item), "timeline", timeline);
+      g_object_set_data (G_OBJECT (item), "clip", clip);
+      gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+      
+      /* Separator */
+      item = gtk_separator_menu_item_new ();
+      gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+      
+      /* Generate Proxy */
+      item = gtk_menu_item_new_with_label (_("Generate Proxy"));
+      g_object_set_data (G_OBJECT (item), "timeline", timeline);
+      g_object_set_data (G_OBJECT (item), "clip", clip);
+      /* We need to wrap the call because the function expects different parameters than the signal provides */
+      g_signal_connect (item, "activate", G_CALLBACK (on_generate_proxy_for_clip), NULL);
+      gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+      
+      /* Show the menu */
+      gtk_widget_show_all (menu);
+      gtk_menu_popup_at_pointer (GTK_MENU (menu), (GdkEvent *)event);
     } else {
       /* Right click on empty area */
       blouedit_timeline_show_context_menu (timeline, x, y);
@@ -6143,6 +6179,26 @@ on_set_snap_mode (GtkMenuItem *menuitem, gpointer user_data)
 }
 
 /**
+ * on_generate_proxy_for_clip:
+ * @menuitem: The menu item that was activated
+ * @user_data: User data (not used)
+ *
+ * Callback for generating a proxy for a clip from the context menu.
+ */
+static void
+on_generate_proxy_for_clip (GtkMenuItem *menuitem, gpointer user_data)
+{
+  GtkWidget *menu_item = GTK_WIDGET (menuitem);
+  BlouEditTimeline *timeline = g_object_get_data (G_OBJECT (menu_item), "timeline");
+  GESClip *clip = g_object_get_data (G_OBJECT (menu_item), "clip");
+  
+  if (timeline && clip) {
+    /* Generate proxy for the clip */
+    blouedit_timeline_generate_proxy_for_clip (timeline, clip);
+  }
+}
+
+/**
  * blouedit_timeline_show_context_menu:
  * @timeline: 타임라인 객체
  * @x: 컨텍스트 메뉴를 표시할 X 좌표
@@ -6220,6 +6276,20 @@ blouedit_timeline_show_context_menu (BlouEditTimeline *timeline, gdouble x, gdou
   /* 스냅 설정 메뉴 항목 */
   item = gtk_menu_item_new_with_label (_("Snap Settings"));
   gtk_menu_item_set_submenu (GTK_MENU_ITEM (item), submenu);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  /* 구분선 */
+  item = gtk_separator_menu_item_new ();
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  /* 프록시 설정 */
+  item = gtk_menu_item_new_with_label (_("Proxy Settings..."));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_show_proxy_settings_dialog), timeline);
+  gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+  
+  /* 성능 모드 설정 */
+  item = gtk_menu_item_new_with_label (_("Performance Mode..."));
+  g_signal_connect_swapped (item, "activate", G_CALLBACK (blouedit_timeline_show_performance_settings_dialog), timeline);
   gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
   
   /* 구분선 */
