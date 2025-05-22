@@ -178,21 +178,16 @@
                                   </object>
                                 </child>
                                 <child>
-                                  <object class="GtkSeparator">
-                                    <property name="orientation">vertical</property>
-                                  </object>
-                                </child>
-                                <child>
-                                  <object class="GtkButton">
-                                    <property name="label" translatable="yes">Proxy</property>
-                                    <property name="tooltip-text" translatable="yes">Proxy Workflow Settings</property>
-                                    <property name="action-name">win.proxy-settings</property>
-                                  </object>
-                                </child>
-                                <child>
                                   <object class="GtkButton">
                                     <property name="label" translatable="yes">Text</property>
                                     <property name="tooltip-text" translatable="yes">Add Text</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="label" translatable="yes">Tracks</property>
+                                    <property name="tooltip-text" translatable="yes">Manage Timeline Tracks</property>
+                                    <property name="action-name">win.manage-tracks</property>
                                   </object>
                                 </child>
                                 <child>
@@ -624,6 +619,16 @@
       <item>
         <attribute name="label" translatable="yes">_Performance Mode</attribute>
         <attribute name="action">win.performance-mode</attribute>
+      </item>
+    </section>
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">_Add Track</attribute>
+        <attribute name="action">win.add-track</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Manage Tracks</attribute>
+        <attribute name="action">win.manage-tracks</attribute>
       </item>
     </section>
     <section>

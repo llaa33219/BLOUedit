@@ -3,6 +3,29 @@
 #include "tracks.h"
 #include <glib/gi18n.h>
 
+// Forward declarations
+static void on_add_track_dialog_response (GtkDialog *dialog, gint response_id, gpointer user_data);
+static void on_track_type_toggled (GtkToggleButton *togglebutton, gpointer user_data);
+static void on_track_type_color_changed (GtkToggleButton *radio, GtkWidget *color_button);
+static void on_track_mute_toggled (GtkToggleButton *toggle, gpointer user_data);
+static void on_track_solo_toggled (GtkToggleButton *toggle, gpointer user_data);
+static void on_track_lock_toggled (GtkToggleButton *toggle, gpointer user_data);
+static void on_track_add_button_clicked (BlouEditTimeline *timeline);
+static void on_track_remove_button_clicked (GtkButton *button, gpointer user_data);
+static void on_remove_track_confirm (GtkDialog *dialog, gint response_id, gpointer user_data);
+static void on_track_move_up_button_clicked (GtkButton *button, gpointer user_data);
+static void on_track_move_down_button_clicked (GtkButton *button, gpointer user_data);
+static void on_track_row_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data);
+static void on_track_properties_apply (GtkButton *button, gpointer user_data);
+
+// Data structures
+typedef struct {
+  BlouEditTimeline *timeline;
+  GtkWidget *name_entry;
+  GtkWidget *video_radio;
+  GtkWidget *color_button;
+} AddTrackDialogData;
+
 /**
  * blouedit_timeline_add_track:
  * @timeline: 타임라인 객체
@@ -338,10 +361,384 @@ blouedit_timeline_show_track_properties (BlouEditTimeline *timeline)
 {
   g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
   
-  /* 
-   * 이 함수는 실제 구현에서 GTK+ 대화상자를 생성하고 표시해야 합니다.
-   * 이 코드 분할 예제에서는 기본 구조만 제공합니다.
-   */
+  // 대화상자 생성
+  GtkWidget *dialog = gtk_dialog_new_with_buttons (_("Track Properties"),
+                                                   GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (timeline))),
+                                                   GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                   _("Close"), GTK_RESPONSE_CLOSE,
+                                                   NULL);
+  
+  // 대화상자 크기 설정
+  gtk_window_set_default_size (GTK_WINDOW (dialog), 500, 400);
+  
+  // 대화상자 컨텐츠 영역 가져오기
+  GtkWidget *content_area = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
+  gtk_widget_set_margin (content_area, 12);
+  gtk_box_set_spacing (GTK_BOX (content_area), 6);
+  
+  // 메인 박스 생성
+  GtkWidget *main_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+  gtk_box_append (GTK_BOX (content_area), main_box);
+  
+  // 트랙 목록 레이블
+  GtkWidget *tracks_label = gtk_label_new (_("Timeline Tracks"));
+  gtk_widget_add_css_class (tracks_label, "title-3");
+  gtk_widget_set_halign (tracks_label, GTK_ALIGN_START);
+  gtk_box_append (GTK_BOX (main_box), tracks_label);
+  
+  // 트랙 리스트 스크롤 윈도우
+  GtkWidget *scrolled_window = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW (scrolled_window), 200);
+  gtk_widget_set_vexpand (scrolled_window, TRUE);
+  gtk_box_append (GTK_BOX (main_box), scrolled_window);
+  
+  // 트랙 리스트뷰 생성
+  GtkWidget *listview = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (listview), GTK_SELECTION_SINGLE);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled_window), listview);
+  
+  // 트랙 목록 채우기
+  GSList *l;
+  for (l = timeline->tracks; l != NULL; l = l->next) {
+    BlouEditTimelineTrack *track = (BlouEditTimelineTrack *)l->data;
+    GESTrackType track_type = ges_track_get_track_type (track->ges_track);
+    
+    // 트랙 행 위젯 생성
+    GtkWidget *row_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin (row_box, 6);
+    
+    // 색상 표시
+    GtkWidget *color_button = gtk_color_button_new_with_rgba (&track->color);
+    gtk_box_append (GTK_BOX (row_box), color_button);
+    
+    // 이름 및 타입 표시
+    gchar *type_str = track_type == GES_TRACK_TYPE_VIDEO ? _("Video") : _("Audio");
+    gchar *label_text = g_strdup_printf ("%s (%s)", track->name, type_str);
+    GtkWidget *label = gtk_label_new (label_text);
+    g_free (label_text);
+    gtk_widget_set_halign (label, GTK_ALIGN_START);
+    gtk_widget_set_hexpand (label, TRUE);
+    gtk_box_append (GTK_BOX (row_box), label);
+    
+    // 음소거/솔로 토글 추가
+    if (track_type == GES_TRACK_TYPE_AUDIO) {
+      GtkWidget *mute_toggle = gtk_check_button_new_with_label (_("Mute"));
+      gtk_check_button_set_active (GTK_CHECK_BUTTON (mute_toggle), track->muted);
+      g_object_set_data (G_OBJECT (mute_toggle), "track", track);
+      g_signal_connect (mute_toggle, "toggled", G_CALLBACK (on_track_mute_toggled), timeline);
+      gtk_box_append (GTK_BOX (row_box), mute_toggle);
+      
+      GtkWidget *solo_toggle = gtk_check_button_new_with_label (_("Solo"));
+      gtk_check_button_set_active (GTK_CHECK_BUTTON (solo_toggle), track->solo);
+      g_object_set_data (G_OBJECT (solo_toggle), "track", track);
+      g_signal_connect (solo_toggle, "toggled", G_CALLBACK (on_track_solo_toggled), timeline);
+      gtk_box_append (GTK_BOX (row_box), solo_toggle);
+    }
+    
+    // 잠금 토글
+    GtkWidget *lock_toggle = gtk_check_button_new_with_label (_("Lock"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (lock_toggle), track->locked);
+    g_object_set_data (G_OBJECT (lock_toggle), "track", track);
+    g_signal_connect (lock_toggle, "toggled", G_CALLBACK (on_track_lock_toggled), timeline);
+    gtk_box_append (GTK_BOX (row_box), lock_toggle);
+    
+    // 리스트에 행 추가
+    GtkWidget *row = gtk_list_box_row_new ();
+    gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), row_box);
+    g_object_set_data (G_OBJECT (row), "track", track);
+    gtk_list_box_append (GTK_LIST_BOX (listview), row);
+  }
+  
+  // 트랙 속성 컨트롤을 위한 버튼 상자
+  GtkWidget *button_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_widget_set_margin_top (button_box, 12);
+  gtk_box_append (GTK_BOX (main_box), button_box);
+  
+  // 트랙 추가 버튼
+  GtkWidget *add_button = gtk_button_new_with_label (_("Add Track"));
+  g_signal_connect_swapped (add_button, "clicked", G_CALLBACK (on_track_add_button_clicked), timeline);
+  gtk_box_append (GTK_BOX (button_box), add_button);
+  
+  // 트랙 제거 버튼
+  GtkWidget *remove_button = gtk_button_new_with_label (_("Remove Track"));
+  g_object_set_data (G_OBJECT (remove_button), "listview", listview);
+  g_signal_connect (remove_button, "clicked", G_CALLBACK (on_track_remove_button_clicked), timeline);
+  gtk_box_append (GTK_BOX (button_box), remove_button);
+  
+  // 트랙 이동 버튼
+  GtkWidget *move_up_button = gtk_button_new_with_label (_("Move Up"));
+  g_object_set_data (G_OBJECT (move_up_button), "listview", listview);
+  g_signal_connect (move_up_button, "clicked", G_CALLBACK (on_track_move_up_button_clicked), timeline);
+  gtk_box_append (GTK_BOX (button_box), move_up_button);
+  
+  GtkWidget *move_down_button = gtk_button_new_with_label (_("Move Down"));
+  g_object_set_data (G_OBJECT (move_down_button), "listview", listview);
+  g_signal_connect (move_down_button, "clicked", G_CALLBACK (on_track_move_down_button_clicked), timeline);
+  gtk_box_append (GTK_BOX (button_box), move_down_button);
+  
+  // 선택된 트랙 속성 편집 섹션
+  GtkWidget *properties_frame = gtk_frame_new (_("Selected Track Properties"));
+  gtk_widget_set_margin_top (properties_frame, 12);
+  gtk_box_append (GTK_BOX (main_box), properties_frame);
+  
+  GtkWidget *properties_grid = gtk_grid_new ();
+  gtk_widget_set_margin (properties_grid, 12);
+  gtk_grid_set_row_spacing (GTK_GRID (properties_grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (properties_grid), 12);
+  gtk_frame_set_child (GTK_FRAME (properties_frame), properties_grid);
+  
+  // 트랙 이름 편집
+  GtkWidget *name_label = gtk_label_new_with_mnemonic (_("_Name:"));
+  gtk_widget_set_halign (name_label, GTK_ALIGN_START);
+  gtk_grid_attach (GTK_GRID (properties_grid), name_label, 0, 0, 1, 1);
+  
+  GtkWidget *name_entry = gtk_entry_new ();
+  gtk_widget_set_hexpand (name_entry, TRUE);
+  gtk_grid_attach (GTK_GRID (properties_grid), name_entry, 1, 0, 1, 1);
+  
+  // 트랙 색상 편집
+  GtkWidget *color_label = gtk_label_new_with_mnemonic (_("_Color:"));
+  gtk_widget_set_halign (color_label, GTK_ALIGN_START);
+  gtk_grid_attach (GTK_GRID (properties_grid), color_label, 0, 1, 1, 1);
+  
+  GtkWidget *color_button = gtk_color_button_new ();
+  gtk_grid_attach (GTK_GRID (properties_grid), color_button, 1, 1, 1, 1);
+  
+  // 트랙 높이 편집
+  GtkWidget *height_label = gtk_label_new_with_mnemonic (_("_Height:"));
+  gtk_widget_set_halign (height_label, GTK_ALIGN_START);
+  gtk_grid_attach (GTK_GRID (properties_grid), height_label, 0, 2, 1, 1);
+  
+  GtkWidget *height_spin = gtk_spin_button_new_with_range (20, 200, 5);
+  gtk_grid_attach (GTK_GRID (properties_grid), height_spin, 1, 2, 1, 1);
+  
+  // 적용 버튼
+  GtkWidget *apply_button = gtk_button_new_with_label (_("Apply Changes"));
+  gtk_widget_set_margin_top (apply_button, 6);
+  gtk_grid_attach (GTK_GRID (properties_grid), apply_button, 0, 3, 2, 1);
+  
+  // 편집 위젯의 데이터 구조체 생성
+  TrackPropertyData *prop_data = g_new0 (TrackPropertyData, 1);
+  prop_data->timeline = timeline;
+  prop_data->listview = listview;
+  prop_data->name_entry = name_entry;
+  prop_data->color_button = color_button;
+  prop_data->height_spin = height_spin;
+  
+  g_object_set_data_full (G_OBJECT (dialog), "property-data", prop_data, g_free);
+  
+  // 선택 변경 시그널 연결
+  g_signal_connect (listview, "row-selected", G_CALLBACK (on_track_row_selected), prop_data);
+  
+  // 속성 적용 버튼 시그널 연결
+  g_signal_connect (apply_button, "clicked", G_CALLBACK (on_track_properties_apply), prop_data);
+  
+  // 대화상자 표시
+  gtk_widget_show (dialog);
+  
+  // 응답 시그널 핸들러 연결
+  g_signal_connect (dialog, "response", G_CALLBACK (gtk_window_destroy), NULL);
+}
+
+// 트랙 속성 데이터 구조체
+typedef struct {
+  BlouEditTimeline *timeline;
+  GtkWidget *listview;
+  GtkWidget *name_entry;
+  GtkWidget *color_button;
+  GtkWidget *height_spin;
+  BlouEditTimelineTrack *current_track;
+} TrackPropertyData;
+
+// 트랙 뮤트 토글 콜백
+static void
+on_track_mute_toggled (GtkToggleButton *toggle, gpointer user_data)
+{
+  BlouEditTimeline *timeline = BLOUEDIT_TIMELINE (user_data);
+  BlouEditTimelineTrack *track = g_object_get_data (G_OBJECT (toggle), "track");
+  
+  if (track) {
+    blouedit_timeline_set_track_muted (timeline, track, gtk_toggle_button_get_active (toggle));
+  }
+}
+
+// 트랙 솔로 토글 콜백
+static void
+on_track_solo_toggled (GtkToggleButton *toggle, gpointer user_data)
+{
+  BlouEditTimeline *timeline = BLOUEDIT_TIMELINE (user_data);
+  BlouEditTimelineTrack *track = g_object_get_data (G_OBJECT (toggle), "track");
+  
+  if (track) {
+    blouedit_timeline_set_track_solo (timeline, track, gtk_toggle_button_get_active (toggle));
+  }
+}
+
+// 트랙 잠금 토글 콜백
+static void
+on_track_lock_toggled (GtkToggleButton *toggle, gpointer user_data)
+{
+  BlouEditTimeline *timeline = BLOUEDIT_TIMELINE (user_data);
+  BlouEditTimelineTrack *track = g_object_get_data (G_OBJECT (toggle), "track");
+  
+  if (track) {
+    blouedit_timeline_set_track_locked (timeline, track, gtk_toggle_button_get_active (toggle));
+  }
+}
+
+// 트랙 추가 버튼 클릭 콜백
+static void
+on_track_add_button_clicked (BlouEditTimeline *timeline)
+{
+  blouedit_timeline_show_add_track_dialog (timeline);
+}
+
+// 트랙 제거 버튼 클릭 콜백
+static void
+on_track_remove_button_clicked (GtkButton *button, gpointer user_data)
+{
+  BlouEditTimeline *timeline = BLOUEDIT_TIMELINE (user_data);
+  GtkWidget *listview = GTK_WIDGET (g_object_get_data (G_OBJECT (button), "listview"));
+  GtkListBoxRow *selected_row = gtk_list_box_get_selected_row (GTK_LIST_BOX (listview));
+  
+  if (selected_row) {
+    BlouEditTimelineTrack *track = g_object_get_data (G_OBJECT (selected_row), "track");
+    
+    if (track) {
+      // 삭제 확인 대화상자
+      GtkWidget *confirm_dialog = gtk_message_dialog_new (
+        GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (button))),
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_WARNING,
+        GTK_BUTTONS_YES_NO,
+        _("Remove track '%s'?"),
+        track->name
+      );
+      
+      gtk_message_dialog_format_secondary_text (
+        GTK_MESSAGE_DIALOG (confirm_dialog),
+        _("Removing this track will delete all clips in it. This action cannot be undone.")
+      );
+      
+      g_signal_connect (confirm_dialog, "response", G_CALLBACK (on_remove_track_confirm), track);
+      g_object_set_data (G_OBJECT (confirm_dialog), "timeline", timeline);
+      g_object_set_data (G_OBJECT (confirm_dialog), "listview", listview);
+      
+      gtk_widget_show (confirm_dialog);
+    }
+  }
+}
+
+// 트랙 제거 확인 콜백
+static void
+on_remove_track_confirm (GtkDialog *dialog, gint response_id, gpointer user_data)
+{
+  if (response_id == GTK_RESPONSE_YES) {
+    BlouEditTimelineTrack *track = (BlouEditTimelineTrack *)user_data;
+    BlouEditTimeline *timeline = g_object_get_data (G_OBJECT (dialog), "timeline");
+    GtkWidget *listview = g_object_get_data (G_OBJECT (dialog), "listview");
+    
+    // 트랙 제거
+    blouedit_timeline_remove_track (timeline, track);
+    
+    // 리스트뷰 다시 로드
+    gtk_list_box_remove_all (GTK_LIST_BOX (listview));
+    GSList *l;
+    for (l = timeline->tracks; l != NULL; l = l->next) {
+      BlouEditTimelineTrack *track = (BlouEditTimelineTrack *)l->data;
+      
+      // TODO: 리스트뷰 다시 채우기 (기존 코드와 동일)
+    }
+  }
+  
+  gtk_window_destroy (GTK_WINDOW (dialog));
+}
+
+// 트랙 위로 이동 버튼 클릭 콜백
+static void
+on_track_move_up_button_clicked (GtkButton *button, gpointer user_data)
+{
+  BlouEditTimeline *timeline = BLOUEDIT_TIMELINE (user_data);
+  GtkWidget *listview = GTK_WIDGET (g_object_get_data (G_OBJECT (button), "listview"));
+  GtkListBoxRow *selected_row = gtk_list_box_get_selected_row (GTK_LIST_BOX (listview));
+  
+  if (selected_row) {
+    BlouEditTimelineTrack *track = g_object_get_data (G_OBJECT (selected_row), "track");
+    
+    if (track) {
+      blouedit_timeline_move_track_up (timeline, track);
+      
+      // 리스트뷰 다시 로드
+      // TODO: 리스트뷰 업데이트
+    }
+  }
+}
+
+// 트랙 아래로 이동 버튼 클릭 콜백
+static void
+on_track_move_down_button_clicked (GtkButton *button, gpointer user_data)
+{
+  BlouEditTimeline *timeline = BLOUEDIT_TIMELINE (user_data);
+  GtkWidget *listview = GTK_WIDGET (g_object_get_data (G_OBJECT (button), "listview"));
+  GtkListBoxRow *selected_row = gtk_list_box_get_selected_row (GTK_LIST_BOX (listview));
+  
+  if (selected_row) {
+    BlouEditTimelineTrack *track = g_object_get_data (G_OBJECT (selected_row), "track");
+    
+    if (track) {
+      blouedit_timeline_move_track_down (timeline, track);
+      
+      // 리스트뷰 다시 로드
+      // TODO: 리스트뷰 업데이트
+    }
+  }
+}
+
+// 트랙 행 선택 콜백
+static void
+on_track_row_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
+{
+  TrackPropertyData *data = (TrackPropertyData *)user_data;
+  
+  if (row) {
+    BlouEditTimelineTrack *track = g_object_get_data (G_OBJECT (row), "track");
+    
+    if (track) {
+      data->current_track = track;
+      
+      // 현재 속성 표시
+      gtk_entry_set_text (GTK_ENTRY (data->name_entry), track->name);
+      gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER (data->color_button), &track->color);
+      gtk_spin_button_set_value (GTK_SPIN_BUTTON (data->height_spin), track->height);
+    }
+  } else {
+    data->current_track = NULL;
+  }
+}
+
+// 트랙 속성 적용 버튼 콜백
+static void
+on_track_properties_apply (GtkButton *button, gpointer user_data)
+{
+  TrackPropertyData *data = (TrackPropertyData *)user_data;
+  
+  if (data->current_track) {
+    // 이름 변경
+    const gchar *new_name = gtk_entry_get_text (GTK_ENTRY (data->name_entry));
+    blouedit_timeline_set_track_name (data->timeline, data->current_track, new_name);
+    
+    // 색상 변경
+    GdkRGBA new_color;
+    gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER (data->color_button), &new_color);
+    data->current_track->color = new_color;
+    
+    // 높이 변경
+    gint new_height = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (data->height_spin));
+    blouedit_timeline_set_track_height (data->timeline, data->current_track, new_height);
+    
+    // UI 다시 그리기
+    gtk_widget_queue_draw (GTK_WIDGET (data->timeline));
+  }
 }
 
 /**
@@ -359,7 +756,7 @@ blouedit_timeline_show_add_track_dialog (BlouEditTimeline *timeline)
   
   // 대화상자 생성
   GtkWidget *dialog = gtk_dialog_new_with_buttons (_("Add New Track"),
-                                                  GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (timeline))),
+                                                  GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (timeline))),
                                                   GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
                                                   _("Cancel"), GTK_RESPONSE_CANCEL,
                                                   _("Add"), GTK_RESPONSE_ACCEPT,
@@ -367,14 +764,14 @@ blouedit_timeline_show_add_track_dialog (BlouEditTimeline *timeline)
   
   // 대화상자 컨텐츠 영역 가져오기
   GtkWidget *content_area = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
-  gtk_container_set_border_width (GTK_CONTAINER (content_area), 12);
+  gtk_widget_set_margin (content_area, 12);
   gtk_box_set_spacing (GTK_BOX (content_area), 6);
   
   // 그리드 레이아웃 생성
   GtkWidget *grid = gtk_grid_new ();
   gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
   gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
-  gtk_container_add (GTK_CONTAINER (content_area), grid);
+  gtk_box_append (GTK_BOX (content_area), grid);
   
   // 트랙 이름 입력 필드
   GtkWidget *name_label = gtk_label_new_with_mnemonic (_("Track _Name:"));
@@ -385,8 +782,10 @@ blouedit_timeline_show_add_track_dialog (BlouEditTimeline *timeline)
   gtk_grid_attach (GTK_GRID (grid), name_entry, 1, 0, 1, 1);
   
   // 라디오 버튼 그룹 (트랙 유형 선택)
-  GtkWidget *video_radio = gtk_radio_button_new_with_mnemonic (NULL, _("_Video Track"));
-  GtkWidget *audio_radio = gtk_radio_button_new_with_mnemonic_from_widget (GTK_RADIO_BUTTON (video_radio), _("_Audio Track"));
+  GtkWidget *video_radio = gtk_check_button_new_with_mnemonic (_("_Video Track"));
+  GtkWidget *audio_radio = gtk_check_button_new_with_mnemonic (_("_Audio Track"));
+  gtk_check_button_set_group (GTK_CHECK_BUTTON (audio_radio), GTK_CHECK_BUTTON (video_radio));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (video_radio), TRUE);
 
   // 현재 트랙 수 표시 레이블 추가
   gint video_count = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_VIDEO);
@@ -423,20 +822,39 @@ blouedit_timeline_show_add_track_dialog (BlouEditTimeline *timeline)
   gtk_entry_set_text (GTK_ENTRY (name_entry), g_strdup_printf (_("Video %d"), video_count + 1));
   
   // 대화상자 표시
-  gtk_widget_show_all (dialog);
+  gtk_widget_show (dialog);
   
-  // 대화상자 응답 처리
-  if (gtk_dialog_run (GTK_DIALOG (dialog)) == GTK_RESPONSE_ACCEPT) {
+  // 응답 시그널 핸들러 연결
+  g_signal_connect (dialog, "response", G_CALLBACK (on_add_track_dialog_response), timeline);
+  
+  // 추가 데이터 설정을 위한 구조체 생성 및 연결
+  AddTrackDialogData *data = g_new0 (AddTrackDialogData, 1);
+  data->timeline = timeline;
+  data->name_entry = name_entry;
+  data->video_radio = video_radio;
+  data->color_button = color_button;
+  
+  g_object_set_data_full (G_OBJECT (dialog), "dialog-data", data, g_free);
+}
+
+// 추가: 대화상자 응답 처리 함수
+static void
+on_add_track_dialog_response (GtkDialog *dialog, gint response_id, gpointer user_data)
+{
+  if (response_id == GTK_RESPONSE_ACCEPT) {
+    BlouEditTimeline *timeline = BLOUEDIT_TIMELINE (user_data);
+    AddTrackDialogData *data = g_object_get_data (G_OBJECT (dialog), "dialog-data");
+    
     // 사용자가 '추가' 버튼을 클릭한 경우
-    const gchar *name = gtk_entry_get_text (GTK_ENTRY (name_entry));
+    const gchar *name = gtk_entry_get_text (GTK_ENTRY (data->name_entry));
     
     // 트랙 유형 결정
-    GESTrackType track_type = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (video_radio)) 
+    GESTrackType track_type = gtk_check_button_get_active (GTK_CHECK_BUTTON (data->video_radio)) 
                             ? GES_TRACK_TYPE_VIDEO : GES_TRACK_TYPE_AUDIO;
     
     // 색상 가져오기
     GdkRGBA selected_color;
-    gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER (color_button), &selected_color);
+    gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER (data->color_button), &selected_color);
     
     // 새 트랙 추가
     BlouEditTimelineTrack *new_track = blouedit_timeline_add_track (timeline, track_type, name);
@@ -455,7 +873,43 @@ blouedit_timeline_show_add_track_dialog (BlouEditTimeline *timeline)
   }
   
   // 대화상자 파괴
-  gtk_widget_destroy (dialog);
+  gtk_window_destroy (GTK_WINDOW (dialog));
+}
+
+/**
+ * on_track_type_toggled:
+ * @togglebutton: 트랙 유형 토글 버튼
+ * @user_data: 이름 입력 위젯
+ *
+ * 트랙 유형이 변경되었을 때 기본 이름을 업데이트합니다.
+ */
+static void
+on_track_type_toggled (GtkToggleButton *togglebutton, gpointer user_data)
+{
+  GtkWidget *name_entry = GTK_WIDGET (user_data);
+  GtkWidget *dialog = gtk_widget_get_ancestor (GTK_WIDGET (togglebutton), GTK_TYPE_DIALOG);
+  BlouEditTimeline *timeline = NULL;
+  
+  // 대화상자 데이터에서 타임라인 가져오기
+  AddTrackDialogData *data = g_object_get_data (G_OBJECT (dialog), "dialog-data");
+  if (data) {
+    timeline = data->timeline;
+  }
+  
+  if (!timeline) {
+    return;
+  }
+  
+  // 현재 트랙 유형에 따라 적절한 이름 설정
+  if (gtk_toggle_button_get_active (togglebutton)) {
+    // 비디오 트랙
+    gint video_count = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_VIDEO);
+    gtk_entry_set_text (GTK_ENTRY (name_entry), g_strdup_printf (_("Video %d"), video_count + 1));
+  } else {
+    // 오디오 트랙
+    gint audio_count = blouedit_timeline_get_track_count (timeline, GES_TRACK_TYPE_AUDIO);
+    gtk_entry_set_text (GTK_ENTRY (name_entry), g_strdup_printf (_("Audio %d"), audio_count + 1));
+  }
 }
 
 /**
@@ -1221,4 +1675,85 @@ blouedit_timeline_apply_track_template (BlouEditTimeline *timeline, BlouEditTrac
   blouedit_timeline_set_track_height (timeline, track, template->height);
   
   return track;
+}
+
+/**
+ * blouedit_timeline_set_track_height:
+ * @timeline: 타임라인 객체
+ * @track: 트랙 객체
+ * @height: 새로운 높이 (픽셀 단위)
+ *
+ * 트랙의 높이를 설정합니다. 트랙은 최소 높이와 최대 높이 사이에서 조절됩니다.
+ */
+void
+blouedit_timeline_set_track_height (BlouEditTimeline *timeline, BlouEditTimelineTrack *track, gint height)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  g_return_if_fail (track != NULL);
+  
+  /* 트랙이 목록에 있는지 확인 */
+  if (!g_slist_find (timeline->tracks, track)) {
+    g_warning ("Track not found in timeline");
+    return;
+  }
+  
+  /* 최소/최대 높이 범위 내로 제한 */
+  height = CLAMP (height, timeline->min_track_height, timeline->max_track_height);
+  
+  /* 높이가 변경되지 않으면 아무 작업도 하지 않음 */
+  if (track->height == height)
+    return;
+  
+  /* 새로운 높이 설정 */
+  track->height = height;
+  
+  /* 이벤트 발행: 트랙 높이 변경됨 */
+  g_signal_emit_by_name (timeline, "track-height-changed", track);
+  
+  /* 위젯 다시 그리기 */
+  gtk_widget_queue_draw (GTK_WIDGET (timeline));
+}
+
+/**
+ * blouedit_timeline_show_message:
+ * @timeline: 타임라인 객체
+ * @message: 표시할 메시지
+ *
+ * 타임라인 상단에 간단한 메시지를 잠시 표시합니다.
+ * 사용자 작업 피드백을 제공하기 위해 사용됩니다.
+ */
+void
+blouedit_timeline_show_message (BlouEditTimeline *timeline, const gchar *message)
+{
+  g_return_if_fail (BLOUEDIT_IS_TIMELINE (timeline));
+  g_return_if_fail (message != NULL);
+  
+  // 상위 윈도우 얻기
+  GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (timeline));
+  
+  if (GTK_IS_WINDOW (root)) {
+    // 토스트 알림 표시
+    GtkWidget *toast = gtk_label_new (message);
+    gtk_widget_add_css_class (toast, "toast");
+    
+    // 윈도우에 오버레이 추가
+    GtkWidget *overlay = gtk_overlay_new ();
+    gtk_overlay_set_child (GTK_OVERLAY (overlay), toast);
+    
+    // 오버레이 위치 설정
+    gtk_widget_set_halign (toast, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign (toast, GTK_ALIGN_START);
+    gtk_widget_set_margin_top (toast, 12);
+    gtk_widget_add_css_class (toast, "background");
+    gtk_widget_add_css_class (toast, "card");
+    gtk_widget_set_margin (toast, 12);
+    
+    gtk_window_present (GTK_WINDOW (root));
+    
+    // 3초 후 토스트 제거
+    g_timeout_add_seconds (3, (GSourceFunc)gtk_widget_unparent, toast);
+  } else {
+    // 윈도우가 없는 경우 로그에 메시지 출력
+    g_message ("%s", message);
+  }
 } 

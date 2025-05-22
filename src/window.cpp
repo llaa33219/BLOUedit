@@ -230,20 +230,21 @@ on_add_track_action (GSimpleAction *action, GVariant *parameter, gpointer user_d
   BlouEditWindow *window = BLOUEDIT_WINDOW (user_data);
   BlouEditTimeline *timeline = NULL;
   
-  // Get the active timeline from the window
-  // This is a simplified implementation - you might need to get the actual timeline widget
-  // from your UI, depending on your application structure
-  GtkWidget *editor_view = gtk_widget_get_parent(window->content_box);
-  if (editor_view) {
-    // Assuming the timeline is somehow accessible from the editor view
-    // This would need to be adapted to your actual application structure
-    GtkScrolledWindow *timeline_scroll = GTK_SCROLLED_WINDOW(gtk_widget_get_last_child(window->content_box));
-    if (timeline_scroll) {
-      timeline = BLOUEDIT_TIMELINE(gtk_scrolled_window_get_child(timeline_scroll));
+  // Try to get the timeline from the content area
+  GtkBox *content_box = window->content_box;
+  if (content_box) {
+    // Look for the timeline widget which should be in a scrolled window at the bottom
+    GtkWidget *timeline_area = gtk_widget_get_last_child(GTK_WIDGET(content_box));
+    if (GTK_IS_SCROLLED_WINDOW(timeline_area)) {
+      GtkWidget *timeline_widget = gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(timeline_area));
+      if (BLOUEDIT_IS_TIMELINE(timeline_widget)) {
+        timeline = BLOUEDIT_TIMELINE(timeline_widget);
+      }
     }
   }
   
   if (timeline) {
+    // Call the track dialog function directly
     blouedit_timeline_show_add_track_dialog(timeline);
   } else {
     // Show an error message if the timeline is not available
@@ -251,7 +252,7 @@ on_add_track_action (GSimpleAction *action, GVariant *parameter, gpointer user_d
                                               GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
                                               GTK_MESSAGE_ERROR,
                                               GTK_BUTTONS_CLOSE,
-                                              "Unable to access timeline. Please open a project first.");
+                                              "Cannot add track: Timeline not found. Please open a project first.");
     gtk_dialog_run (GTK_DIALOG (dialog));
     gtk_widget_destroy (dialog);
   }
@@ -263,20 +264,21 @@ on_manage_tracks_action (GSimpleAction *action, GVariant *parameter, gpointer us
   BlouEditWindow *window = BLOUEDIT_WINDOW (user_data);
   BlouEditTimeline *timeline = NULL;
   
-  // Get the active timeline from the window
-  // This is a simplified implementation - you might need to get the actual timeline widget
-  // from your UI, depending on your application structure
-  GtkWidget *editor_view = gtk_widget_get_parent(window->content_box);
-  if (editor_view) {
-    // Assuming the timeline is somehow accessible from the editor view
-    // This would need to be adapted to your actual application structure
-    GtkScrolledWindow *timeline_scroll = GTK_SCROLLED_WINDOW(gtk_widget_get_last_child(window->content_box));
-    if (timeline_scroll) {
-      timeline = BLOUEDIT_TIMELINE(gtk_scrolled_window_get_child(timeline_scroll));
+  // Try to get the timeline from the content area
+  GtkBox *content_box = window->content_box;
+  if (content_box) {
+    // Look for the timeline widget which should be in a scrolled window at the bottom
+    GtkWidget *timeline_area = gtk_widget_get_last_child(GTK_WIDGET(content_box));
+    if (GTK_IS_SCROLLED_WINDOW(timeline_area)) {
+      GtkWidget *timeline_widget = gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(timeline_area));
+      if (BLOUEDIT_IS_TIMELINE(timeline_widget)) {
+        timeline = BLOUEDIT_TIMELINE(timeline_widget);
+      }
     }
   }
   
   if (timeline) {
+    // Call the track properties function directly
     blouedit_timeline_show_track_properties(timeline);
   } else {
     // Show an error message if the timeline is not available
@@ -284,7 +286,7 @@ on_manage_tracks_action (GSimpleAction *action, GVariant *parameter, gpointer us
                                               GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
                                               GTK_MESSAGE_ERROR,
                                               GTK_BUTTONS_CLOSE,
-                                              "Unable to access timeline. Please open a project first.");
+                                              "Cannot manage tracks: Timeline not found. Please open a project first.");
     gtk_dialog_run (GTK_DIALOG (dialog));
     gtk_widget_destroy (dialog);
   }
